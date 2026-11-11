@@ -1,0 +1,31 @@
+[project]
+name = "otc-bot"
+version = "1.0.0"
+description = "OTC Transaction Monitoring & Rejection Extraction Bot"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "playwright>=1.40.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "flask>=3.0.0",
+    "watchdog>=3.0.0",
+    "xlrd>=2.0.1"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

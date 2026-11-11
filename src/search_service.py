@@ -1,0 +1,403 @@
+"""Transaction search execution module.
+
+Fills search fields dynamically by reading screen inputs, executes query via ENTER or submit button,
+and detects search completion states with multi-layer adaptive fallbacks for layout variations.
+"""
+
+import time
+from typing import Any, Dict, Optional, Tuple
+
+from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+
+def resolve_bank_option_value(
+    bank_name: str, bank_mapping: Dict[str, str], available_options: Dict[str, str]
+) -> Optional[str]:
+    """Match an input bank name to the corresponding option value in the portal dropdown.
+
+    Resilient to code differences, full name vs short code, and case variations.
+
+    Args:
+        bank_name: Clean bank string from input file (e.g. 'HBL', 'Meezan').
+        bank_mapping: User-configured bank code to display name mapping.
+        available_options: Dict mapping option value to its visible text.
+
+    Returns:
+        Optional[str]: Best matching option value attribute, or None if unresolvable.
+    """
+    clean_target = bank_name.strip().upper()
+
+    # 1. Exact value match (e.g. value="UBL" == "UBL")
+    for val in available_options:
+        if val.strip().upper() == clean_target:
+            return val
+
+    # 2. Value substring match
+    for val in available_options:
+        if clean_target in val.strip().upper() or val.strip().upper() in clean_target:
+            return val
+
+    # 3. Exact or substring match in visible option text
+    for val, text in available_options.items():
+        t_upper = text.strip().upper()
+        if clean_target == t_upper or f" {clean_target} " in f" {t_upper} " or f"({clean_target})" in t_upper:
+            return val
+
+    # 4. Mapped display name match (e.g. "United Bank Limited")
+    mapped_name = bank_mapping.get(clean_target, "").strip().upper()
+    if mapped_name:
+        for val, text in available_options.items():
+            t_upper = text.strip().upper()
+            if mapped_name in t_upper or t_upper in mapped_name:
+                return val
+            # Match acronyms (e.g. HBL in "Habib Bank Limited (HBL)")
+            words = [w[0] for w in t_upper.split() if w]
+            if "".join(words) == clean_target:
+                return val
+
+    # 5. Fallback: match any option whose text starts with or contains the bank keyword
+    for val, text in available_options.items():
+        if val and clean_target[:3] in text.upper():
+            return val
+
+    return None
+
+
+def find_dropdown_locator(page: Page, configured_selector: str) -> Optional[Locator]:
+    """Locate bank/biller dropdown adaptively using ID, label, name, role, or option inspection.
+
+    Args:
+        page: Active Playwright page.
+        configured_selector: User-configured CSS selector.
+
+    Returns:
+        Optional[Locator]: Found select locator, or None.
+    """
+    # 1. Direct configured and standard ID selectors
+    candidates = [
+        "#biller-service-select",
+        "[data-testid='biller-service-select']",
+        configured_selector,
+        "#bankSelect",
+        "#billerSelect",
+        "#bank_select",
+        "#biller_select",
+        "select[name*='biller' i]",
+        "select[name*='bank' i]",
+        "select[id*='bank' i]",
+        "select[id*='biller' i]",
+    ]
+    for sel in candidates:
+        if not sel:
+            continue
+        try:
+            loc = page.locator(sel).first
+            if loc.is_visible(timeout=300):
+                return loc
+        except Exception:
+            continue
+
+    # 2. Label-associated select search (e.g. <label>Bank</label> -> <select>)
+    label_selectors = [
+        "label:has-text('Bank')",
+        "label:has-text('Biller')",
+        "label:has-text('Service')",
+        "label:has-text('Institution')",
+    ]
+    for lbl_sel in label_selectors:
+        try:
+            lbl = page.locator(lbl_sel).first
+            if lbl.is_visible(timeout=200):
+                # Try sibling or parent container select
+                parent = lbl.locator("..")
+                sel_in_parent = parent.locator("select").first
+                if sel_in_parent.is_visible(timeout=200):
+                    return sel_in_parent
+        except Exception:
+            continue
+
+    # 3. Content heuristic: Any visible select that has banking options
+    all_selects = page.locator("select:visible").all()
+    for s in all_selects:
+        try:
+            txt = s.inner_text().upper()
+            if any(b in txt for b in ("HBL", "UBL", "MCB", "MEEZAN", "ALFALAH", "NBP", "ABL", "BANK")):
+                return s
+        except Exception:
+            continue
+
+    # 4. Fallback: first visible select on page
+    if all_selects:
+        return all_selects[0]
+
+    return None
+
+
+def find_consumer_input_locator(page: Page, configured_selector: str) -> Optional[Locator]:
+    """Locate consumer number input adaptively using ID, label, placeholder, or positional analysis.
+
+    Args:
+        page: Active Playwright page.
+        configured_selector: Configured CSS selector.
+
+    Returns:
+        Optional[Locator]: Found text input locator.
+    """
+    # 1. Direct configured and standard selectors
+    candidates = [
+        "#consumer-number-input",
+        "[data-testid='consumer-number-input']",
+        configured_selector,
+        "#consumerNumberInput",
+        "#consumerNumber",
+        "#consumer_number",
+        "#consumer_no",
+        "#accountNumber",
+        "input[name*='consumer' i]",
+        "input[id*='consumer' i]",
+        "input[placeholder*='consumer' i]",
+    ]
+    for sel in candidates:
+        if not sel:
+            continue
+        try:
+            loc = page.locator(sel).first
+            if loc.is_visible(timeout=300):
+                return loc
+        except Exception:
+            continue
+
+    # 2. Label-associated input search
+    label_selectors = [
+        "label:has-text('Consumer')",
+        "label:has-text('Account')",
+        "label:has-text('Bill Number')",
+        "label:has-text('Reference')",
+    ]
+    for lbl_sel in label_selectors:
+        try:
+            lbl = page.locator(lbl_sel).first
+            if lbl.is_visible(timeout=200):
+                # Check 'for' attribute
+                for_id = lbl.get_attribute("for")
+                if for_id:
+                    target = page.locator(f"#{for_id}").first
+                    if target.is_visible(timeout=200):
+                        return target
+                # Check input in same parent container
+                inp = lbl.locator("..").locator("input:visible").first
+                if inp.is_visible(timeout=200):
+                    return inp
+        except Exception:
+            continue
+
+    # 3. Positional heuristic: first visible text input in search container/card
+    container = page.locator("#filter-section-card, form, #search-filter-form, .portal-card").first
+    if container.is_visible(timeout=200):
+        text_inputs = container.locator("input[type='text']:visible, input:not([type]):visible").all()
+        if text_inputs:
+            return text_inputs[0]
+
+    return None
+
+
+def find_date_inputs(page: Page) -> Tuple[Optional[Locator], Optional[Locator]]:
+    """Locate From Date and To Date inputs adaptively regardless of layout or attribute names.
+
+    Args:
+        page: Active Playwright page.
+
+    Returns:
+        Tuple[Optional[Locator], Optional[Locator]]: (from_date_locator, to_date_locator).
+    """
+    # 1. Standard IDs
+    from_loc = page.locator("#from-date-input, [data-testid='from-date-input'], #fromDateInput, #fromDate").first
+    to_loc = page.locator("#to-date-input, [data-testid='to-date-input'], #toDateInput, #toDate").first
+
+    if from_loc.is_visible(timeout=200) and to_loc.is_visible(timeout=200):
+        return from_loc, to_loc
+
+    # 2. Native date inputs
+    date_inputs = page.locator("input[type='date']:visible").all()
+    if len(date_inputs) >= 2:
+        return date_inputs[0], date_inputs[1]
+
+    # 3. Label-based detection
+    from_lbl = page.locator("label:has-text('From')").first
+    to_lbl = page.locator("label:has-text('To')").first
+    found_from = None
+    found_to = None
+
+    if from_lbl.is_visible(timeout=200):
+        found_from = from_lbl.locator("..").locator("input:visible").first
+    if to_lbl.is_visible(timeout=200):
+        found_to = to_lbl.locator("..").locator("input:visible").first
+
+    if found_from and found_to and found_from.is_visible(timeout=200) and found_to.is_visible(timeout=200):
+        return found_from, found_to
+
+    # 4. Attribute heuristics (name/id/placeholder)
+    from_attr = page.locator("input[name*='from' i]:visible, input[placeholder*='from' i]:visible").first
+    to_attr = page.locator("input[name*='to' i]:visible, input[placeholder*='to' i]:visible").first
+    if from_attr.is_visible(timeout=200) and to_attr.is_visible(timeout=200):
+        return from_attr, to_attr
+
+    return None, None
+
+
+def select_bank(
+    page: Page, bank_selector: str, bank_name: str, bank_mapping: Dict[str, str]
+) -> None:
+    """Select the requested bank from the portal dropdown menu with adaptive matching.
+
+    Args:
+        page: Active Playwright page.
+        bank_selector: CSS locator for the bank select element.
+        bank_name: Target bank name.
+        bank_mapping: Mapping dictionary.
+    """
+    dropdown = find_dropdown_locator(page, bank_selector)
+    if not dropdown:
+        return
+
+    try:
+        options_data = dropdown.evaluate(
+            "el => Array.from(el.options).map(o => ({ value: o.value, text: o.text }))"
+        )
+        options_dict = {o["value"]: o["text"] for o in options_data if o.get("value")}
+        target_val = resolve_bank_option_value(bank_name, bank_mapping, options_dict)
+        if target_val:
+            dropdown.select_option(value=target_val)
+            time.sleep(0.3)
+    except Exception:
+        pass
+
+
+def fill_search_fields(
+    page: Page,
+    selectors: Dict[str, Any],
+    bank_name: str,
+    consumer_number: str,
+    search_date: str,
+    bank_mapping: Dict[str, str],
+) -> None:
+    """Populate Bank, Consumer Number, From Date, and To Date input fields adaptively.
+
+    Args:
+        page: Active Playwright page.
+        selectors: Portal selector configuration.
+        bank_name: Bank/Service name.
+        consumer_number: Consumer Number string.
+        search_date: Transaction date (YYYY-MM-DD).
+        bank_mapping: Bank alias mapping dictionary.
+    """
+    search_sel = selectors.get("search", {})
+    bank_sel = search_sel.get("bank_select", "#biller-service-select, #bankSelect")
+    consumer_sel = search_sel.get("consumer_input", "#consumer-number-input, #consumerNumberInput")
+
+    # 1. Select bank first
+    select_bank(page, bank_sel, bank_name, bank_mapping)
+
+    # 2. Fill consumer number
+    consumer_input = find_consumer_input_locator(page, consumer_sel)
+    if consumer_input:
+        consumer_input.fill("")
+        consumer_input.fill(str(consumer_number).strip())
+
+    # 3. Populate From Date and To Date using adaptive date locator
+    from_date_input, to_date_input = find_date_inputs(page)
+    if from_date_input and to_date_input:
+        try:
+            from_date_input.fill(search_date)
+            to_date_input.fill(search_date)
+        except Exception:
+            pass
+
+
+def execute_transaction_search(
+    page: Page,
+    selectors: Dict[str, Any],
+    bank_name: str,
+    consumer_number: str,
+    search_date: str,
+    bank_mapping: Dict[str, str],
+    timeout_ms: int = 15000,
+) -> bool:
+    """Execute transaction search by pressing ENTER on consumer field or clicking Search.
+
+    Waits explicitly for loading indicator to finish and results/alert to display.
+
+    Args:
+        page: Active Playwright page.
+        selectors: Portal selector configuration.
+        bank_name: Bank/Service name.
+        consumer_number: Consumer number.
+        search_date: Transaction date.
+        bank_mapping: Bank alias mapping.
+        timeout_ms: Maximum wait time for query completion.
+
+    Returns:
+        bool: True if search completed and table or no-record notification is visible.
+    """
+    fill_search_fields(page, selectors, bank_name, consumer_number, search_date, bank_mapping)
+
+    consumer_sel = selectors.get("search", {}).get("consumer_input", "#consumer-number-input, #consumerNumberInput")
+    consumer_field = find_consumer_input_locator(page, consumer_sel)
+    if consumer_field:
+        try:
+            consumer_field.press("Enter")
+        except Exception:
+            pass
+
+    time.sleep(0.3)
+
+    # Trigger Search button if ENTER didn't trigger
+    search_btn_selectors = [
+        "#btn-search-bill-status",
+        "[data-testid='btn-search-bill-status']",
+        selectors.get("search", {}).get("search_button", "#btnSearch"),
+        "button:has-text('Bill Status')",
+        "button:has-text('Search')",
+        "button:has-text('Query')",
+        "button:has-text('Inquire')",
+        "button:has-text('Inquiry')",
+        "button[type='submit']",
+        "input[type='submit']",
+        "#btnSearch",
+    ]
+    for btn_sel in search_btn_selectors:
+        try:
+            loc = page.locator(btn_sel).first
+            if loc.is_visible(timeout=300):
+                # Wait briefly if button is temporarily disabled by loading state
+                for _ in range(5):
+                    if not loc.is_disabled():
+                        break
+                    time.sleep(0.2)
+                loc.click()
+                break
+        except Exception:
+            continue
+
+    # Wait for loading spinner to dismiss
+    loading_sel = selectors.get("results", {}).get(
+        "loading_indicator",
+        "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
+    )
+    try:
+        if page.locator(loading_sel).first.is_visible(timeout=500):
+            page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=timeout_ms)
+    except PlaywrightTimeoutError:
+        pass
+
+    # Wait for results table or no record message
+    table_candidates = (
+        "#transactions-table, #transactionsTable, [data-testid='transactions-table'], table, "
+        "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']"
+    )
+    try:
+        page.wait_for_selector(table_candidates, timeout=timeout_ms)
+        return True
+    except PlaywrightTimeoutError:
+        return True

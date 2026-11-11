@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# Playwright & Browser Sessions
+checkpoints/browser_profile/
+playwright-report/
+test-results/
+
+# Local Databases & Checkpoints
+checkpoints/*.db
+checkpoints/*.db-journal
+checkpoints/*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+data/
+
+# Log Files
+logs/*.log
+*.log
+
+# Runtime Operational Folders (preserve directory structure via .gitkeep)
+input/*
+!input/.gitkeep
+processing/*
+!processing/.gitkeep
+completed/*
+!completed/.gitkeep
+failed/*
+!failed/.gitkeep
+output/*
+!output/.gitkeep
+
+# Sensitive & Environment Files
+.env
+.env.*
+!.env.example
+
+# Temporary Office and Lock Files
+~$*.xlsx
+~$*.xls
+~$*.csv
+*.tmp
+
+# Operating System Files
+Thumbs.db
+Desktop.ini
+.DS_Store

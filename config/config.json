@@ -1,0 +1,101 @@
+{
+  "portal": {
+    "login_url": "http://192.168.1.11:5173/",
+    "base_url": "http://192.168.1.11:5173/",
+    "dashboard_url": "http://192.168.1.11:5173/dashboard",
+    "check_bill_url": null,
+    "timeout_ms": 30000,
+    "search_timeout_ms": 15000,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 2
+  },
+  "browser": {
+    "headless": false,
+    "browser_type": "chromium",
+    "slow_mo_ms": 100,
+    "user_data_dir": "checkpoints/browser_profile",
+    "cdp_url": null
+  },
+  "directories": {
+    "input_dir": "input",
+    "processing_dir": "processing",
+    "completed_dir": "completed",
+    "failed_dir": "failed",
+    "output_dir": "output",
+    "logs_dir": "logs",
+    "checkpoints_dir": "checkpoints"
+  },
+  "monitoring": {
+    "poll_interval_seconds": 2.0,
+    "stability_check_interval_seconds": 0.5,
+    "stability_required_checks": 2,
+    "supported_extensions": [
+      ".xlsx",
+      ".xls",
+      ".csv"
+    ]
+  },
+  "selectors": {
+    "login": {
+      "username_input": "#login-username-input, #username, input[name='username']",
+      "password_input": "#login-password-input, #password, input[type='password']",
+      "captcha_input": "#login-captcha-input, #captcha, input[name*='captcha' i]",
+      "otp_input": "#otp, input[name*='otp' i]",
+      "submit_button": "#btn-login, #btnLogin, button[type='submit']",
+      "auth_indicator": "#dashboard-page, #top-navbar, #btn-goto-check-bill-status, #nav-bps-check-bill-status, #bill-status-page, #userProfile, [data-authenticated='true']",
+      "session_expired_indicator": "#sessionExpiredAlert, .session-expired"
+    },
+    "navigation": {
+      "bps_menu": "#btn-goto-check-bill-status, #nav-bps-check-bill-status, #nav-bps, #navBps, a:has-text('BPS')",
+      "check_bill_status_link": "#btn-goto-check-bill-status, #nav-bps-check-bill-status, #navCheckBillStatus, a:has-text('Check Bill Status')"
+    },
+    "search": {
+      "bank_select": "#biller-service-select, #bankSelect, select[name='biller_service'], select[name='bank']",
+      "consumer_input": "#consumer-number-input, #consumerNumberInput, input[name='consumer_number']",
+      "from_date_input": "#from-date-input, #fromDateInput, input[name='from_date']",
+      "to_date_input": "#to-date-input, #toDateInput, input[name='to_date']",
+      "search_button": "#btn-search-bill-status, #btnSearch, button:has-text('Bill Status'), button:has-text('Search')"
+    },
+    "results": {
+      "results_container": "#results-table-section, #resultsContainer",
+      "table": "#transactions-table, #transactionsTable, table",
+      "rows": "#transactions-table tbody tr, #transactionsTable tbody tr, table tbody tr",
+      "loading_indicator": "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading",
+      "no_record_message": "#no-records-message, #noRecordsAlert",
+      "pagination_next": "#btn-page-next, #btnNextPage",
+      "pagination_prev": "#btn-page-prev, #btnPrevPage",
+      "page_info": "#pagination-summary, #pageInfo"
+    }
+  },
+  "bank_mapping": {
+    "HBL": "Habib Bank Limited (HBL)",
+    "MEEZAN": "Meezan Bank Limited",
+    "MCB": "MCB Bank Limited",
+    "ALFALAH": "Bank Alfalah",
+    "NBP": "National Bank of Pakistan (NBP)",
+    "ABL": "Allied Bank Limited (ABL)",
+    "UBL": "United Bank Limited (UBL)"
+  },
+  "classification_rules": {
+    "excluded_rejection_codes": [
+      "95",
+      "98"
+    ],
+    "approved_status_keywords": [
+      "Approved",
+      "Successful"
+    ],
+    "approved_response_code": "00",
+    "pending_status_keywords": [
+      "Pending"
+    ],
+    "rejected_status_keywords": [
+      "Rejected"
+    ]
+  },
+  "storage": {
+    "checkpoint_db_path": "checkpoints/processing_checkpoint.db",
+    "output_dir": "output",
+    "logs_dir": "logs"
+  }
+}
