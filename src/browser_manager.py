@@ -2,18 +2,51 @@
 
 Supports persistent browser profiles, reusable contexts, and Chrome DevTools
 Protocol (CDP) remote debugging attachments.
+Includes portable browser path configuration for restricted Windows workstations.
 """
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+
+from src.config import resolve_app_path
 
 _PLAYWRIGHT_INSTANCE: Optional[Any] = None
 _BROWSER: Optional[Browser] = None
 _CONTEXT: Optional[BrowserContext] = None
 _PAGE: Optional[Page] = None
 _IS_CDP_CONNECTION: bool = False
+
+
+def configure_portable_browsers_path(browser_config: Dict[str, Any]) -> Optional[Path]:
+    """Configure PLAYWRIGHT_BROWSERS_PATH to use application-controlled directories.
+
+    Prioritizes:
+    1. Explicit 'browser_dir' setting in configuration.
+    2. Local 'browsers' directory inside the portable application root.
+    3. Retains existing environment variable or user-level fallback.
+
+    Args:
+        browser_config: Browser options dictionary.
+
+    Returns:
+        Optional[Path]: Configured directory path if found and set.
+    """
+    custom_dir = browser_config.get("browser_dir")
+    if custom_dir:
+        resolved_custom = resolve_app_path(custom_dir)
+        if resolved_custom.exists():
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(resolved_custom)
+            return resolved_custom
+
+    local_browsers = resolve_app_path("browsers")
+    if local_browsers.exists():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_browsers)
+        return local_browsers
+
+    return None
 
 
 def launch_persistent_browser_session(
@@ -29,6 +62,9 @@ def launch_persistent_browser_session(
     Returns:
         Tuple[Optional[Browser], BrowserContext, Page]: Active browser handle (if direct launch),
         context, and page.
+
+    Raises:
+        RuntimeError: If browser launch fails with actionable diagnostic remedies.
     """
     global _PLAYWRIGHT_INSTANCE, _BROWSER, _CONTEXT, _PAGE, _IS_CDP_CONNECTION
 
@@ -43,9 +79,13 @@ def launch_persistent_browser_session(
 
     close_browser_session()
 
+    configure_portable_browsers_path(browser_config)
+
     headless = browser_config.get("headless", False)
     slow_mo = browser_config.get("slow_mo_ms", 100)
     cdp_url = browser_config.get("cdp_url")
+    channel = browser_config.get("channel")
+    exec_path = browser_config.get("executable_path")
 
     _PLAYWRIGHT_INSTANCE = sync_playwright().start()
 
@@ -64,17 +104,34 @@ def launch_persistent_browser_session(
 
     # Mode 2: Launch persistent profile context so authentication session persists across restarts
     user_data_dir_str = browser_config.get("user_data_dir", "checkpoints/browser_profile")
-    user_data_path = Path(user_data_dir_str).resolve()
+    user_data_path = resolve_app_path(user_data_dir_str)
     user_data_path.mkdir(parents=True, exist_ok=True)
 
-    _CONTEXT = _PLAYWRIGHT_INSTANCE.chromium.launch_persistent_context(
-        user_data_dir=str(user_data_path),
-        headless=headless,
-        slow_mo=slow_mo,
-        args=["--start-maximized"],
-        no_viewport=True,
-        ignore_https_errors=True,
-    )
+    launch_kwargs: Dict[str, Any] = {
+        "user_data_dir": str(user_data_path),
+        "headless": headless,
+        "slow_mo": slow_mo,
+        "args": ["--start-maximized"],
+        "no_viewport": True,
+        "ignore_https_errors": True,
+    }
+    if channel:
+        launch_kwargs["channel"] = channel
+    if exec_path:
+        launch_kwargs["executable_path"] = str(resolve_app_path(exec_path))
+
+    try:
+        _CONTEXT = _PLAYWRIGHT_INSTANCE.chromium.launch_persistent_context(**launch_kwargs)
+    except Exception as exc:
+        close_browser_session()
+        err_msg = str(exc)
+        remedy = (
+            "Browser launch failed. If your workstation security policy (AppLocker) blocks custom "
+            "binaries, set 'channel': 'msedge' or 'channel': 'chrome' in config.json to use the "
+            "pre-installed system browser, or use 'cdp_url' for remote debugging."
+        )
+        raise RuntimeError(f"{err_msg}\n[Diagnostic Tip]: {remedy}") from exc
+
     _BROWSER = None
     _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
     _IS_CDP_CONNECTION = False

@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from src.config import ensure_workspace_directories, load_config
+from src.diagnostics import format_diagnostics_report, run_full_system_diagnostics
 from src.queue_manager import set_monitoring_state, start_continuous_monitoring_worker
 from src.runner import run_batch_automation
 from src.ui import launch_gui
@@ -22,7 +23,7 @@ def parse_arguments() -> argparse.Namespace:
         argparse.Namespace: Parsed command line parameters.
     """
     parser = argparse.ArgumentParser(
-        description="OTC Bot"
+        description="OTC Bot — Portable Enterprise Transaction Monitor"
     )
     parser.add_argument(
         "--monitor", action="store_true", help="Run continuous directory monitoring in CLI mode."
@@ -31,7 +32,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=str,
-        default="sample_input.csv",
+        default="sample_input.xlsx",
         help="Path to the input Excel or CSV file for single-file mode.",
     )
     parser.add_argument(
@@ -45,13 +46,32 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Start the local mock OTC portal web server on port 8080.",
     )
+    parser.add_argument(
+        "--diagnostics",
+        "--check",
+        action="store_true",
+        dest="diagnostics",
+        help="Run pre-flight environment and browser runtime diagnostics.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """Application main entry point."""
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except AttributeError:
+            pass
+
     args = parse_arguments()
     ensure_workspace_directories()
+
+    if args.diagnostics:
+        results = run_full_system_diagnostics(Path(args.config) if args.config else None)
+        print(format_diagnostics_report(results))
+        sys.exit(0 if results["overall_status"] != "FAIL" else 1)
 
     if args.mock:
         from mock_portal.app import app

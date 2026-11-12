@@ -20,6 +20,7 @@ from src.browser_manager import (
     navigate_browser_to,
 )
 from src.config import ensure_workspace_directories, load_config, save_config
+from src.diagnostics import format_diagnostics_report, run_full_system_diagnostics
 from src.logger import set_ui_log_callback
 from src.queue_manager import (
     clear_processing_queue,
@@ -86,6 +87,64 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         pady=4,
     )
     portal_auth_badge.pack(side="right")
+
+    def show_diagnostics_dialog() -> None:
+        diag = run_full_system_diagnostics(config_path)
+        report_text = format_diagnostics_report(diag)
+
+        diag_win = tk.Toplevel(root)
+        diag_win.title("System Diagnostics — Pre-flight Checks")
+        diag_win.geometry("640x520")
+        diag_win.minsize(540, 420)
+        diag_win.configure(bg="#f8fafc")
+
+        status_color = (
+            "#166534"
+            if diag["overall_status"] == "PASS"
+            else ("#854D0E" if diag["overall_status"] == "WARN" else "#991B1B")
+        )
+        tk.Label(
+            diag_win,
+            text=f"Diagnostics Status: {diag['overall_status']}",
+            font=("Segoe UI", 12, "bold"),
+            fg=status_color,
+            bg="#f8fafc",
+            pady=8,
+        ).pack(fill="x")
+
+        txt_frame = tk.Frame(diag_win, padx=10, pady=6, bg="#f8fafc")
+        txt_frame.pack(fill="both", expand=True)
+
+        txt = tk.Text(txt_frame, font=("Consolas", 9), wrap="word", bg="#0F172A", fg="#38BDF8")
+        scroll = ttk.Scrollbar(txt_frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=scroll.set)
+        txt.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        txt.insert(tk.END, report_text)
+        txt.configure(state="disabled")
+
+        tk.Button(
+            diag_win,
+            text="Close",
+            font=("Segoe UI", 9, "bold"),
+            bg="#1B365D",
+            fg="white",
+            padx=16,
+            pady=4,
+            command=diag_win.destroy,
+        ).pack(pady=8)
+
+    btn_diag_header = tk.Button(
+        header_frame,
+        text="🩺 Diagnostics",
+        font=("Segoe UI", 9, "bold"),
+        bg="#0284C7",
+        fg="white",
+        padx=10,
+        pady=3,
+        command=show_diagnostics_dialog,
+    )
+    btn_diag_header.pack(side="right", padx=(0, 10))
 
     main_container = tk.Frame(root, bg="#f1f5f9", padx=16, pady=10)
     main_container.pack(fill="both", expand=True)

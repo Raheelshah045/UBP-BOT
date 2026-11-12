@@ -1,11 +1,42 @@
 """Configuration module for loading and retrieving runtime settings.
 
 Provides functions to read, validate, and access application settings and paths.
+Supports frozen portable binaries (PyInstaller) and standard Python environments.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict
+
+
+def get_application_root() -> Path:
+    """Return the absolute root directory of the application.
+
+    Works consistently in standard development mode and when running as a
+    standalone portable binary (e.g. PyInstaller frozen executable).
+
+    Returns:
+        Path: Resolved application root folder.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_app_path(relative_or_absolute: str | Path) -> Path:
+    """Resolve a path relative to the portable application root.
+
+    Args:
+        relative_or_absolute: File or directory path string or Path object.
+
+    Returns:
+        Path: Absolute resolved path.
+    """
+    p = Path(relative_or_absolute)
+    if p.is_absolute():
+        return p
+    return (get_application_root() / p).resolve()
 
 
 def get_default_config_path() -> Path:
@@ -14,10 +45,11 @@ def get_default_config_path() -> Path:
     Returns:
         Path: Path to config.json located at the project root or config directory.
     """
-    root_cfg = Path(__file__).resolve().parent.parent / "config.json"
+    app_root = get_application_root()
+    root_cfg = app_root / "config.json"
     if root_cfg.exists():
         return root_cfg
-    config_dir_cfg = Path(__file__).resolve().parent.parent / "config" / "config.json"
+    config_dir_cfg = app_root / "config" / "config.json"
     return config_dir_cfg
 
 
@@ -25,12 +57,12 @@ def ensure_workspace_directories(base_dir: Path | None = None) -> Dict[str, Path
     """Ensure all mandatory runtime directories exist.
 
     Args:
-        base_dir: Optional root directory path. Defaults to project root.
+        base_dir: Optional root directory path. Defaults to application root.
 
     Returns:
         Dict[str, Path]: Mapping of directory identifiers to initialized Path objects.
     """
-    root = base_dir if base_dir is not None else Path(__file__).resolve().parent.parent
+    root = base_dir if base_dir is not None else get_application_root()
     dir_names = [
         "input",
         "processing",

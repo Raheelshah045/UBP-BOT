@@ -1,0 +1,201 @@
+"""Packaging and build script for OTC-BOT Portable Enterprise Distribution.
+
+Compiles standalone executable bundle using PyInstaller and stages a complete,
+zero-install, non-administrative portable application directory.
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def build_portable_distribution() -> Path:
+    """Build the standalone PyInstaller executable and assemble the portable folder."""
+    project_root = Path(__file__).resolve().parent.parent
+    dist_dir = project_root / "dist"
+    portable_root = dist_dir / "OTC-BOT-Portable"
+
+    print(f"[*] Packaging OTC-BOT from: {project_root}")
+    print(f"[*] Target portable distribution: {portable_root}")
+
+    # Step 1: Run PyInstaller to build onedir bundle
+    pyinstaller_cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name=OTC-BOT",
+        "--onedir",
+        "--noconfirm",
+        "--clean",
+        "--collect-all=playwright",
+        "--hidden-import=pandas",
+        "--hidden-import=openpyxl",
+        "--hidden-import=tkinter",
+        "--hidden-import=urllib.request",
+        "--hidden-import=sqlite3",
+        str(project_root / "main.py"),
+    ]
+
+    print("[*] Running PyInstaller compilation...")
+    res = subprocess.run(pyinstaller_cmd, cwd=str(project_root), check=True)
+    if res.returncode != 0:
+        raise RuntimeError("PyInstaller build failed.")
+
+    built_app_dir = dist_dir / "OTC-BOT"
+
+    # Step 2: Prepare the final portable directory structure
+    if portable_root.exists():
+        try:
+            shutil.rmtree(portable_root)
+        except Exception:
+            pass
+    portable_root.mkdir(parents=True, exist_ok=True)
+
+    # Move/Copy built onedir files into portable root
+    print("[*] Assembling portable application directory...")
+    for item in built_app_dir.iterdir():
+        dest = portable_root / item.name
+        if item.is_dir():
+            shutil.copytree(str(item), str(dest), dirs_exist_ok=True)
+        else:
+            shutil.copy2(str(item), str(dest))
+
+    # Step 3: Copy portable browser runtime (Chromium + FFmpeg) into portable_root/browsers
+    browsers_dest = portable_root / "browsers"
+    browsers_dest.mkdir(parents=True, exist_ok=True)
+    local_app_playwright = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+
+    if local_app_playwright.exists():
+        for ch_dir in local_app_playwright.glob("chromium-*"):
+            target_ch = browsers_dest / ch_dir.name
+            if not target_ch.exists():
+                print(f"[*] Bundling portable browser: {ch_dir.name}...")
+                shutil.copytree(str(ch_dir), str(target_ch), dirs_exist_ok=True)
+
+        for ff_dir in local_app_playwright.glob("ffmpeg-*"):
+            target_ff = browsers_dest / ff_dir.name
+            if not target_ff.exists():
+                print(f"[*] Bundling support runtime: {ff_dir.name}...")
+                shutil.copytree(str(ff_dir), str(target_ff), dirs_exist_ok=True)
+
+    # Step 4: Create standard runtime directories
+    for dir_name in ["input", "output", "logs", "checkpoints", "processing", "completed", "failed", "config"]:
+        d_path = portable_root / dir_name
+        d_path.mkdir(parents=True, exist_ok=True)
+        gitkeep = d_path / ".gitkeep"
+        if not gitkeep.exists():
+            gitkeep.touch()
+
+    # Step 5: Copy configuration and sample input files
+    sample_src = project_root / "sample_input.xlsx"
+    if sample_src.exists():
+        shutil.copy2(str(sample_src), str(portable_root / "sample_input.xlsx"))
+        shutil.copy2(str(sample_src), str(portable_root / "input" / "sample_input.xlsx"))
+
+    cfg_src = project_root / "config.json"
+    if cfg_src.exists():
+        shutil.copy2(str(cfg_src), str(portable_root / "config.json"))
+        shutil.copy2(str(cfg_src), str(portable_root / "config" / "config.json"))
+
+    # Step 6: Create Windows batch launch scripts
+    # A) Main Launcher
+    bat_launcher = portable_root / "run_otc_bot.bat"
+    bat_launcher.write_text(
+        "@echo off\r\n"
+        "title OTC-BOT — Portable Deployment\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
+        "echo ============================================================\r\n"
+        "echo   Starting OTC-BOT in Portable Non-Admin Mode\r\n"
+        "echo ============================================================\r\n"
+        "start \"\" \"%~dp0OTC-BOT.exe\"\r\n"
+        "exit /b 0\r\n",
+        encoding="utf-8",
+    )
+
+    # B) Diagnostics Launcher
+    bat_diag = portable_root / "verify_environment.bat"
+    bat_diag.write_text(
+        "@echo off\r\n"
+        "title OTC-BOT — Environment Diagnostics\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
+        "\"%~dp0OTC-BOT.exe\" --diagnostics\r\n"
+        "echo.\r\n"
+        "pause\r\n",
+        encoding="utf-8",
+    )
+
+    # C) Mock Portal Launcher
+    bat_mock = portable_root / "run_mock_portal.bat"
+    bat_mock.write_text(
+        "@echo off\r\n"
+        "title OTC-BOT — Local Mock Portal\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        "echo Starting Mock Portal at http://127.0.0.1:8080 ...\r\n"
+        "\"%~dp0OTC-BOT.exe\" --mock\r\n"
+        "pause\r\n",
+        encoding="utf-8",
+    )
+
+    # Step 7: Create Documentation
+    doc_file = portable_root / "PORTABLE_DEPLOYMENT_GUIDE.md"
+    doc_content = (
+        "# OTC-BOT Portable Deployment Guide for Restricted Windows Workstations\n\n"
+        "## Overview\n"
+        "OTC-BOT Portable is designed for high-security enterprise environments (such as bank\n"
+        "branches and corporate financial back-offices) where users do not have administrator\n"
+        "privileges, cannot install Python system-wide, and cannot run arbitrary MSI/EXE installers.\n\n"
+        "## Zero-Admin Architecture\n"
+        "1. **Embedded Executable:** Uses `OTC-BOT.exe` with bundled Python runtime.\n"
+        "2. **Private Browser Runtime:** Bundles Chromium inside `browsers/` using `PLAYWRIGHT_BROWSERS_PATH`.\n"
+        "3. **Zero System Writes:** All reads and writes occur inside the application directory (`input/`, `output/`, `logs/`, `checkpoints/`).\n"
+        "4. **No Registry Writes:** Does not touch Windows Registry or protected system directories (`C:\\Program Files`, `C:\\Windows`).\n"
+        "5. **No Credential Persistence in Binaries:** Credentials, OTPs, and cookies are never compiled into code.\n\n"
+        "## Quick Start (User Mode)\n"
+        "1. Copy or extract `OTC-BOT-Portable` folder to any user directory (e.g., `D:\\OTC-BOT` or `C:\\Users\\<Username>\\OTC-BOT`).\n"
+        "2. Double-click `run_otc_bot.bat` or `OTC-BOT.exe`.\n"
+        "3. Place transaction spreadsheet (`.xlsx`) in `input/` folder.\n"
+        "4. In the application UI, click **▶ Start Monitoring**.\n"
+        "5. Extracted rejected transactions will appear in `output/Rejected_Transaction_Details.xlsx`.\n\n"
+        "## Bank IT & Security Whitelisting Guide\n"
+        "If your workstation uses Microsoft AppLocker, CrowdStrike Falcon, or Windows Defender Application Control (WDAC):\n\n"
+        "### Option 1: Whitelist the Portable Application Directory (Recommended)\n"
+        "- Path Rule: Allow execution from `<User_Dir>\\OTC-BOT-Portable\\*`\n"
+        "- Publisher / Hash Rule: Whitelist `OTC-BOT.exe` and `browsers\\chromium-*\\chrome-win\\chrome.exe`.\n\n"
+        "### Option 2: Use Pre-installed Microsoft Edge (Zero Custom Browser Binaries)\n"
+        "If IT security prohibits running portable browser binaries, configure `config.json`:\n"
+        "```json\n"
+        "\"browser\": {\n"
+        "  \"headless\": false,\n"
+        "  \"channel\": \"msedge\"\n"
+        "}\n"
+        "```\n"
+        "This instructs OTC-BOT to use the official, IT-managed Microsoft Edge browser (`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`).\n\n"
+        "### Option 3: Chrome DevTools Protocol (CDP) Remote Debugging\n"
+        "If subprocess creation is completely disabled by corporate policy:\n"
+        "1. Launch Edge/Chrome manually with: `msedge.exe --remote-debugging-port=9222`\n"
+        "2. In `config.json`, set:\n"
+        "```json\n"
+        "\"browser\": {\n"
+        "  \"cdp_url\": \"http://localhost:9222\"\n"
+        "}\n"
+        "```\n\n"
+        "## Pre-flight Diagnostics\n"
+        "Run `verify_environment.bat` or run from command line:\n"
+        "```cmd\n"
+        "OTC-BOT.exe --diagnostics\n"
+        "```\n"
+        "This inspects folder permissions, browser binary availability, and portal network reachability.\n"
+    )
+    doc_file.write_text(doc_content, encoding="utf-8")
+    shutil.copy2(str(doc_file), str(project_root / "PORTABLE_DEPLOYMENT_GUIDE.md"))
+
+    print(f"[✓] Portable distribution built successfully at:\n    {portable_root}")
+    return portable_root
+
+
+if __name__ == "__main__":
+    build_portable_distribution()
