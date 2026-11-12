@@ -74,6 +74,7 @@ output/*
 ~$*.xls
 ~$*.csv
 *.tmp
+sample_ubl_20.xlsx
 
 # Operating System Files
 Thumbs.db
