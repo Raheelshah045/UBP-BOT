@@ -18,11 +18,13 @@ _IS_CDP_CONNECTION: bool = False
 
 def launch_persistent_browser_session(
     browser_config: Dict[str, Any],
+    initial_url: Optional[str] = None,
 ) -> Tuple[Optional[Browser], BrowserContext, Page]:
     """Initialize or reuse a persistent browser session or CDP connection.
 
     Args:
         browser_config: Configuration dictionary for browser options.
+        initial_url: Optional target portal URL to navigate immediately upon launch.
 
     Returns:
         Tuple[Optional[Browser], BrowserContext, Page]: Active browser handle (if direct launch),
@@ -32,6 +34,11 @@ def launch_persistent_browser_session(
 
     # If context and page are already active and healthy, reuse them directly
     if _CONTEXT is not None and _PAGE is not None and not _PAGE.is_closed():
+        if initial_url and _PAGE.url in ("about:blank", ""):
+            try:
+                _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
         return _BROWSER, _CONTEXT, _PAGE
 
     close_browser_session()
@@ -48,6 +55,11 @@ def launch_persistent_browser_session(
         _CONTEXT = _BROWSER.contexts[0] if _BROWSER.contexts else _BROWSER.new_context()
         _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
         _IS_CDP_CONNECTION = True
+        if initial_url and _PAGE.url in ("about:blank", ""):
+            try:
+                _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
         return _BROWSER, _CONTEXT, _PAGE
 
     # Mode 2: Launch persistent profile context so authentication session persists across restarts
@@ -67,7 +79,33 @@ def launch_persistent_browser_session(
     _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
     _IS_CDP_CONNECTION = False
 
+    if initial_url:
+        try:
+            _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+
     return _BROWSER, _CONTEXT, _PAGE
+
+
+def navigate_browser_to(url: str, timeout_ms: int = 15000) -> bool:
+    """Navigate the active browser page to the specified URL without opening blank tabs.
+
+    Args:
+        url: Target web address.
+        timeout_ms: Maximum navigation timeout in milliseconds.
+
+    Returns:
+        bool: True if page loaded successfully.
+    """
+    page = get_active_browser_page()
+    if not page or page.is_closed():
+        return False
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
 
 
 def launch_browser_session(

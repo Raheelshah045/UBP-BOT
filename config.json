@@ -1,8 +1,8 @@
 {
   "portal": {
-    "login_url": "http://192.168.1.11:5173/",
-    "base_url": "http://192.168.1.11:5173/",
-    "dashboard_url": "http://192.168.1.11:5173/dashboard",
+    "login_url": "http://localhost:5173/",
+    "base_url": "http://localhost:5173/",
+    "dashboard_url": "http://localhost:5173/dashboard",
     "check_bill_url": null,
     "timeout_ms": 30000,
     "search_timeout_ms": 15000,

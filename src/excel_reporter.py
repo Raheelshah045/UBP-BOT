@@ -83,7 +83,13 @@ def is_rejected_transaction(transaction: Dict[str, Any]) -> bool:
         bool: True if transaction status represents a rejection.
     """
     status_str = str(transaction.get("status", "")).strip().upper()
-    return "REJECT" in status_str or bool(transaction.get("is_qualifying_rejection"))
+    return (
+        "REJECT" in status_str
+        or "DECLIN" in status_str
+        or "FAIL" in status_str
+        or "UNSUCCESS" in status_str
+        or bool(transaction.get("is_qualifying_rejection"))
+    )
 
 
 def generate_excel_report(

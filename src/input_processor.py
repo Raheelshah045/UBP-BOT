@@ -3,6 +3,7 @@
 Handles parsing, validating, and structuring input Excel/CSV records with flexible header mapping.
 """
 
+import io
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -65,6 +66,9 @@ def normalize_date_string(raw_date: Any) -> Optional[str]:
 def read_raw_dataframe(file_path: Path) -> pd.DataFrame:
     """Read an Excel or CSV file ensuring Consumer Numbers are kept as strings.
 
+    Reads the entire file into an in-memory buffer first to avoid leaving open OS file handles
+    on disk that could cause Windows PermissionError during file moves.
+
     Args:
         file_path: Path to the target spreadsheet file.
 
@@ -75,10 +79,13 @@ def read_raw_dataframe(file_path: Path) -> pd.DataFrame:
         ValueError: If the file type is unsupported or reading fails.
     """
     ext = file_path.suffix.lower()
+    with file_path.open("rb") as f:
+        file_buffer = io.BytesIO(f.read())
+
     if ext == ".csv":
-        df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
+        df = pd.read_csv(file_buffer, dtype=str, keep_default_na=False)
     elif ext in [".xlsx", ".xls"]:
-        df = pd.read_excel(file_path, dtype=str, keep_default_na=False)
+        df = pd.read_excel(file_buffer, dtype=str, keep_default_na=False)
     else:
         raise ValueError(f"Unsupported file format: {ext}. Only .csv, .xlsx, and .xls supported.")
 

@@ -148,15 +148,22 @@ def scan_directory_for_candidate_files(
     return candidates
 
 
-def move_file_safely(source_file: Path, target_dir: Path) -> Path:
-    """Move a file to target directory with collision avoidance and Excel-lock fallback.
+def move_file_safely(source_file: Path, target_dir: Path, max_retries: int = 5) -> Path:
+    """Move a file to target directory with collision avoidance and atomic lock handling.
+
+    Retries transient OS file locks (e.g. anti-virus scans or recently closed file handles)
+    and guarantees the file is completely removed from the source directory.
 
     Args:
         source_file: Existing file to move.
         target_dir: Destination folder.
+        max_retries: Number of retry attempts on transient file lock.
 
     Returns:
         Path: Final destination path of moved file.
+
+    Raises:
+        PermissionError: If file remains locked by an external application (like Excel) after retries.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
     destination = target_dir / source_file.name
@@ -165,13 +172,28 @@ def move_file_safely(source_file: Path, target_dir: Path) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         destination = target_dir / f"{source_file.stem}_{timestamp}{source_file.suffix}"
 
-    try:
-        shutil.move(str(source_file), str(destination))
-    except (PermissionError, OSError):
-        shutil.copy2(str(source_file), str(destination))
+    last_error: Optional[Exception] = None
+    for attempt in range(max_retries):
         try:
-            source_file.unlink()
-        except Exception:
-            pass
+            shutil.move(str(source_file), str(destination))
+            return destination
+        except (PermissionError, OSError) as exc:
+            last_error = exc
+            time.sleep(0.3 * (attempt + 1))
 
-    return destination
+    # If direct shutil.move failed after retries, try copy + unlink
+    try:
+        shutil.copy2(str(source_file), str(destination))
+        source_file.unlink()
+        return destination
+    except Exception as exc:
+        # If unlink failed, remove destination so we do not leave orphaned duplicate copies
+        if destination.exists():
+            try:
+                destination.unlink()
+            except Exception:
+                pass
+        raise PermissionError(
+            f"File '{source_file.name}' is currently in use or open in Excel. "
+            f"Please close it so the bot can move it. ({last_error or exc})"
+        ) from (last_error or exc)

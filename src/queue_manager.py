@@ -18,6 +18,7 @@ from src.browser_manager import (
 )
 from src.checkpoint import (
     init_checkpoint_db,
+    is_file_already_completed,
     is_file_already_processed,
     record_file_history,
 )
@@ -71,6 +72,12 @@ def get_queued_files_count() -> int:
         return len(_QUEUE)
 
 
+def clear_processing_queue() -> None:
+    """Clear all pending file paths from the queue in memory."""
+    with _QUEUE_LOCK:
+        _QUEUE.clear()
+
+
 def enqueue_file_if_new(file_path: Path) -> bool:
     """Safely append a file path to the processing queue if not already queued.
 
@@ -84,6 +91,8 @@ def enqueue_file_if_new(file_path: Path) -> bool:
         for existing in _QUEUE:
             if existing.resolve() == file_path.resolve():
                 return False
+        if _CURRENT_PROCESSING_FILE and _CURRENT_PROCESSING_FILE.resolve() == file_path.resolve():
+            return False
         _QUEUE.append(file_path)
         return True
 
@@ -100,12 +109,15 @@ def pop_next_queued_file() -> Optional[Path]:
         return None
 
 
-def execute_startup_scan(input_dir: Path, db_path: Path) -> List[Path]:
+def execute_startup_scan(
+    input_dir: Path, db_path: Path, force_reprocess: bool = False
+) -> List[Path]:
     """Scan input folder on startup and enqueue all existing eligible files.
 
     Args:
         input_dir: Monitored input folder.
         db_path: Path to checkpoint database.
+        force_reprocess: If True, re-enqueues files even if completed earlier.
 
     Returns:
         List[Path]: Newly discovered and enqueued file paths.
@@ -116,7 +128,7 @@ def execute_startup_scan(input_dir: Path, db_path: Path) -> List[Path]:
 
     for item in candidates:
         file_hash = compute_file_sha256(item)
-        if is_file_already_processed(db_path, file_hash):
+        if not force_reprocess and is_file_already_completed(db_path, file_hash):
             log_event(
                 logger,
                 20,
@@ -126,7 +138,7 @@ def execute_startup_scan(input_dir: Path, db_path: Path) -> List[Path]:
 
         if enqueue_file_if_new(item):
             enqueued.append(item)
-            log_event(logger, 20, f"Startup scan: Enqueued existing file '{item.name}'.")
+            log_event(logger, 20, f"Startup scan: Enqueued candidate file '{item.name}'.")
 
     return enqueued
 
@@ -292,14 +304,31 @@ def start_continuous_monitoring_worker(
     # Step 1: Automatic startup scan
     execute_startup_scan(input_dir, db_path)
 
-    # Step 2: Initialize or connect to persistent browser
+    # Step 2: Initialize or connect to persistent browser and load portal immediately
     browser_cfg = config.get("browser", {})
     portal_cfg = config.get("portal", {})
-    login_url = portal_cfg.get("login_url", "http://127.0.0.1:8080/login")
+    login_url = portal_cfg.get("login_url", "http://localhost:5173/")
     check_bill_url = portal_cfg.get("check_bill_url")
     selectors = config.get("selectors", {})
 
-    _, _, page = launch_persistent_browser_session(browser_cfg)
+    if on_portal_status:
+        on_portal_status("Opening Portal...")
+    if on_message:
+        on_message(f"Connecting browser to configured portal: {login_url}")
+
+    _, _, page = launch_persistent_browser_session(browser_cfg, initial_url=login_url)
+    if page and not page.is_closed():
+        try:
+            if page.url in ("about:blank", ""):
+                page.goto(login_url, wait_until="domcontentloaded", timeout=15000)
+            if on_portal_status:
+                on_portal_status("Portal Opened")
+        except Exception as nav_err:
+            log_event(logger, 30, f"Initial navigation to {login_url} notice: {nav_err}")
+            if on_message:
+                on_message(f"Notice: Cannot connect to {login_url}. Please check that portal is running.")
+            if on_portal_status:
+                on_portal_status("Connection Notice")
 
     # Step 3: Main Continuous Loop
     poll_sec = config.get("monitoring", {}).get("poll_interval_seconds", 2.0)
@@ -322,7 +351,7 @@ def start_continuous_monitoring_worker(
             candidate_files = scan_directory_for_candidate_files(input_dir)
             for cand in candidate_files:
                 file_h = compute_file_sha256(cand)
-                if not is_file_already_processed(db_path, file_h):
+                if not is_file_already_completed(db_path, file_h):
                     enqueue_file_if_new(cand)
 
             if on_queue_update:

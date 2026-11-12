@@ -8,14 +8,22 @@ import os
 import subprocess
 import threading
 import tkinter as tk
+import urllib.request
 from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any, Dict, Optional
 
-from src.browser_manager import close_browser_session, launch_persistent_browser_session
+from src.browser_manager import (
+    close_browser_session,
+    get_active_browser_page,
+    launch_persistent_browser_session,
+    navigate_browser_to,
+)
 from src.config import ensure_workspace_directories, load_config, save_config
 from src.logger import set_ui_log_callback
 from src.queue_manager import (
+    clear_processing_queue,
+    execute_startup_scan,
     set_monitoring_state,
     set_processing_paused,
     start_continuous_monitoring_worker,
@@ -118,17 +126,58 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         url_status_lbl.configure(text=f"✓ Portal URL saved: {new_url}")
         append_log_line(f"[✓] System Portal URL updated -> {new_url}")
 
+        # If browser is active, navigate immediately so user doesn't see a blank page
+        page = get_active_browser_page()
+        if page and not page.is_closed():
+            append_log_line(f"[*] Navigating open browser window to: {new_url}...")
+            navigate_browser_to(new_url)
+
+    def on_test_open_portal() -> None:
+        target_url = portal_url_var.get().strip()
+        if not target_url:
+            messagebox.showerror("Error", "Please enter a valid portal URL first.")
+            return
+
+        on_save_urls()
+        append_log_line(f"[*] Checking portal reachability: {target_url}...")
+        try:
+            req = urllib.request.urlopen(target_url, timeout=3)
+            append_log_line(f"[✓] Portal host is online (HTTP {req.status}). Opening browser...")
+        except Exception as conn_err:
+            append_log_line(f"[!] Network notice for {target_url}: {conn_err}")
+            append_log_line("    (Tip: If running locally, check if 'http://localhost:5173/' should be used)")
+
+        _, _, page = launch_persistent_browser_session(config.get("browser", {}), initial_url=target_url)
+        if page and not page.is_closed():
+            navigate_browser_to(target_url)
+            append_log_line(f"[✓] Active browser is viewing: {target_url}")
+
+    btn_box = tk.Frame(url_grid, bg="white")
+    btn_box.grid(row=0, column=2, padx=(6, 0), sticky="e")
+
     btn_save_url = tk.Button(
-        url_grid,
-        text="💾 Save & Apply URL",
+        btn_box,
+        text="💾 Save & Apply",
         font=("Segoe UI", 9, "bold"),
         bg="#1B365D",
         fg="white",
-        padx=12,
+        padx=10,
         pady=4,
         command=on_save_urls,
     )
-    btn_save_url.grid(row=0, column=2, padx=(6, 0), sticky="e")
+    btn_save_url.pack(side="left", padx=(0, 4))
+
+    btn_open_portal = tk.Button(
+        btn_box,
+        text="🌐 Open Portal",
+        font=("Segoe UI", 9, "bold"),
+        bg="#0284C7",
+        fg="white",
+        padx=10,
+        pady=4,
+        command=on_test_open_portal,
+    )
+    btn_open_portal.pack(side="left")
 
     url_status_lbl = tk.Label(
         url_grid,
@@ -315,6 +364,17 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     )
     btn_open_out.pack(side="left", padx=4)
 
+    btn_reprocess = tk.Button(
+        ctrl_frame,
+        text="🔁 Re-process Input",
+        font=("Segoe UI", 9),
+        bg="#E2E8F0",
+        fg="#1E293B",
+        padx=8,
+        pady=5,
+    )
+    btn_reprocess.pack(side="left", padx=4)
+
     btn_reconnect = tk.Button(
         ctrl_frame,
         text="🔄 Reconnect Browser",
@@ -458,17 +518,34 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         btn_resume.configure(state="disabled")
         append_log_line("[>] File processing RESUMED.")
 
+    def on_reprocess_input() -> None:
+        clear_processing_queue()
+        dirs_c = config.get("directories", {})
+        in_p = Path(dirs_c.get("input_dir", "input"))
+        db_p = Path(
+            config.get("storage", {}).get(
+                "checkpoint_db_path", "checkpoints/processing_checkpoint.db"
+            )
+        )
+        append_log_line("[🔁] Cleared queue and re-scanning input folder...")
+        enqueued_items = execute_startup_scan(in_p, db_p, force_reprocess=True)
+        append_log_line(f"[✓] Enqueued {len(enqueued_items)} file(s) for immediate processing.")
+
     def on_reconnect_browser() -> None:
         on_save_urls()
-        append_log_line("[🔄] Reconnecting browser session...")
+        target_url = portal_url_var.get().strip()
+        append_log_line(f"[🔄] Reconnecting browser session to {target_url}...")
         close_browser_session()
-        launch_persistent_browser_session(config.get("browser", {}))
-        append_log_line("[✓] Browser session re-initialized.")
+        _, _, page = launch_persistent_browser_session(config.get("browser", {}), initial_url=target_url)
+        if page and not page.is_closed():
+            navigate_browser_to(target_url)
+        append_log_line("[✓] Browser session re-initialized and loaded portal.")
 
     btn_start_mon.configure(command=on_start_monitoring)
     btn_stop_mon.configure(command=on_stop_monitoring)
     btn_pause.configure(command=on_pause)
     btn_resume.configure(command=on_resume)
+    btn_reprocess.configure(command=on_reprocess_input)
     btn_reconnect.configure(command=on_reconnect_browser)
 
     return root
