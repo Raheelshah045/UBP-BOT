@@ -5,6 +5,7 @@ Supports frozen portable binaries (PyInstaller) and standard Python environments
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -21,7 +22,14 @@ def get_application_root() -> Path:
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
+    # Check if APP_DIR override is passed (e.g. portable bundle with app/ subdirectory)
+    if os.environ.get("APP_DIR"):
+        return Path(os.environ["APP_DIR"]).resolve()
+    # If main is inside an 'app' directory next to 'python_runtime', root is parent
+    here = Path(__file__).resolve()
+    if here.parent.name == "src" and here.parent.parent.name == "app":
+        return here.parent.parent.parent
+    return here.parent.parent
 
 
 def resolve_app_path(relative_or_absolute: str | Path) -> Path:
