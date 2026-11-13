@@ -1,7 +1,7 @@
 {
   "portal": {
-    "login_url": "http://localhost:5173/",
-    "base_url": "http://localhost:5173/",
+    "login_url": "http://127.0.0.1:5173/",
+    "base_url": "http://127.0.0.1:5173/",
     "dashboard_url": "http://localhost:5173/dashboard",
     "check_bill_url": null,
     "timeout_ms": 30000,
@@ -97,5 +97,31 @@
     "checkpoint_db_path": "checkpoints/processing_checkpoint.db",
     "output_dir": "output",
     "logs_dir": "logs"
+  },
+  "gnb": {
+    "login_url": "http://127.0.0.1:8765/",
+    "rejected_transactions_url": "http://127.0.0.1:8080/gnb/rejected-transactions",
+    "username": "demo@gnb.local",
+    "password": "GnbDemo@123",
+    "timeout_ms": 30000,
+    "retry_attempts": 3
+  },
+  "gnb_selectors": {
+    "login": {
+      "username_input": "#gnb-username, input[type='email'], input[name='email'], input[name='username'], #email, #username",
+      "password_input": "#gnb-password, input[type='password'], input[name='password'], #password",
+      "submit_button": "#gnb-login-btn, button[type='submit'], input[type='submit'], button:has-text('Log in'), button:has-text('Login'), button:has-text('Sign in')",
+      "auth_indicator": "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true'], a[href*='logout'], button:has-text('Logout')"
+    },
+    "transactions": {
+      "table": "#gnb-rejected-table, table",
+      "rows": "#gnb-rejected-table tbody tr, table tbody tr",
+      "no_record_message": "#gnb-no-records, .no-records",
+      "pagination_next": "#gnb-next-page, .pagination .next"
+    }
+  },
+  "outputs": {
+    "otc_file": "output/OTC_Rejected_Transactions.xlsx",
+    "gnb_file": "output/GNB_Rejected_Transactions.xlsx"
   }
 }

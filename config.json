@@ -101,17 +101,17 @@
   "gnb": {
     "login_url": "http://127.0.0.1:8765/",
     "rejected_transactions_url": "http://127.0.0.1:8080/gnb/rejected-transactions",
-    "username": "",
-    "password": "",
+    "username": "demo@gnb.local",
+    "password": "GnbDemo@123",
     "timeout_ms": 30000,
     "retry_attempts": 3
   },
   "gnb_selectors": {
     "login": {
-      "username_input": "#gnb-username, input[name='username']",
-      "password_input": "#gnb-password, input[type='password']",
-      "submit_button": "#gnb-login-btn, button[type='submit']",
-      "auth_indicator": "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true']"
+      "username_input": "#gnb-username, input[type='email'], input[name='email'], input[name='username'], #email, #username",
+      "password_input": "#gnb-password, input[type='password'], input[name='password'], #password",
+      "submit_button": "#gnb-login-btn, button[type='submit'], input[type='submit'], button:has-text('Log in'), button:has-text('Login'), button:has-text('Sign in')",
+      "auth_indicator": "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true'], a[href*='logout'], button:has-text('Logout')"
     },
     "transactions": {
       "table": "#gnb-rejected-table, table",
