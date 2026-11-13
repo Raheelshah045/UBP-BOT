@@ -298,6 +298,8 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     def on_save_gnb_url() -> None:
         new_url = gnb_url_var.get().strip()
         config.setdefault("gnb", {})["login_url"] = new_url
+        # Also sync rejected_transactions_url so it doesn't default to hardcoded mock port 8080 subpath
+        config["gnb"]["rejected_transactions_url"] = new_url
         save_config(config)
         append_log_line(f"[GNB] Saved URL: {new_url}")
 

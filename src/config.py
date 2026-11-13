@@ -145,6 +145,8 @@ def load_config(config_path: Path | None = None) -> Dict[str, Any]:
         data.setdefault("gnb", {})["password"] = os.environ["GNB_PASSWORD"]
     if "GNB_LOGIN_URL" in os.environ:
         data.setdefault("gnb", {})["login_url"] = os.environ["GNB_LOGIN_URL"]
+    if "GNB_REJECTED_TRANSACTIONS_URL" in os.environ:
+        data.setdefault("gnb", {})["rejected_transactions_url"] = os.environ["GNB_REJECTED_TRANSACTIONS_URL"]
 
     return data
 

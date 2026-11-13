@@ -125,6 +125,9 @@ def extract_gnb_rejected_transactions(
 ) -> List[Dict[str, Any]]:
     """Navigate to GNB rejected transactions page and extract all records.
 
+    If rejected_transactions_url is not explicitly configured or is identical/relative
+    to the login/base URL, uses the current authenticated page or resolves from base URL.
+
     Args:
         page: Active Playwright page.
         gnb_config: GNB settings.
@@ -135,13 +138,30 @@ def extract_gnb_rejected_transactions(
         List[Dict[str, Any]]: Extracted rejected transactions.
     """
     logger = get_logger("gnb_client")
-    rejected_url = gnb_config.get("rejected_transactions_url", "http://127.0.0.1:8080/gnb/rejected-transactions")
+    configured_rej_url = gnb_config.get("rejected_transactions_url")
+    base_url = gnb_config.get("login_url", "http://127.0.0.1:8080/")
 
-    if on_message:
-        on_message("Navigating to GNB Rejected Transactions...")
-    log_event(logger, 20, f"Navigating to GNB Rejected Transactions at {rejected_url}")
+    # If user provided a specific rejected_transactions_url use it, otherwise stay on / derive from base_url
+    if configured_rej_url:
+        rejected_url = configured_rej_url
+    else:
+        # Default to base_url without forcing an obsolete /gnb/rejected-transactions path
+        rejected_url = base_url
 
-    page.goto(rejected_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
+    # Only navigate if we are not already on the target URL or a subpath of it
+    current_url = page.url.rstrip("/")
+    target_clean = rejected_url.rstrip("/")
+    if target_clean and current_url != target_clean:
+        if on_message:
+            on_message(f"Navigating to GNB Transactions at {rejected_url}...")
+        log_event(logger, 20, f"Navigating to GNB Transactions at {rejected_url}")
+        try:
+            page.goto(rejected_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
+        except Exception as nav_exc:
+            log_event(logger, 30, f"Navigation notice for {rejected_url}: {nav_exc}")
+    else:
+        if on_message:
+            on_message("Inspecting active GNB page for rejected transactions...")
 
     tx_sels = selectors.get("transactions", {})
     table_sel = tx_sels.get("table", "#gnb-rejected-table, table")
