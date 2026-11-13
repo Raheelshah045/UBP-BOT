@@ -273,29 +273,6 @@ def get_active_browser_page() -> Optional[Page]:
 def close_browser_session() -> None:
     """Safely terminate page, context, browser, and playwright runner instances."""
     global _PLAYWRIGHT_INSTANCE, _BROWSER, _CONTEXT, _PAGE, _IS_CDP_CONNECTION
-    global _GNB_PLAYWRIGHT, _GNB_CONTEXT, _GNB_PAGE
-
-    if _GNB_PAGE is not None:
-        try:
-            if not _GNB_PAGE.is_closed():
-                _GNB_PAGE.close()
-        except Exception:
-            pass
-        _GNB_PAGE = None
-
-    if _GNB_CONTEXT is not None:
-        try:
-            _GNB_CONTEXT.close()
-        except Exception:
-            pass
-        _GNB_CONTEXT = None
-
-    if _GNB_PLAYWRIGHT is not None:
-        try:
-            _GNB_PLAYWRIGHT.stop()
-        except Exception:
-            pass
-        _GNB_PLAYWRIGHT = None
 
     if _PAGE is not None:
         try:
@@ -327,3 +304,9 @@ def close_browser_session() -> None:
         _PLAYWRIGHT_INSTANCE = None
 
     _IS_CDP_CONNECTION = False
+
+    try:
+        from src.gnb_client import close_gnb_session
+        close_gnb_session()
+    except Exception:
+        pass
