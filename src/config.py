@@ -103,6 +103,9 @@ def ensure_workspace_directories(base_dir: Path | None = None) -> Dict[str, Path
 def load_config(config_path: Path | None = None) -> Dict[str, Any]:
     """Load configuration dictionary from a JSON file.
 
+    Loads base settings from config.json and overrides credentials / secrets
+    from environment variables (or local .env file) if present.
+
     Args:
         config_path: Optional explicit path to configuration file.
 
@@ -116,9 +119,34 @@ def load_config(config_path: Path | None = None) -> Dict[str, Any]:
     if not target_path.exists():
         raise FileNotFoundError(f"Configuration file not found at: {target_path}")
 
+    # Optionally parse local .env file into os.environ if present without printing contents
+    env_file = get_application_root() / ".env"
+    if env_file.exists():
+        try:
+            with env_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#") and "=" in stripped:
+                        key, val = stripped.split("=", 1)
+                        key = key.strip()
+                        val = val.strip().strip("'\"")
+                        if key not in os.environ:
+                            os.environ[key] = val
+        except Exception:
+            pass
+
     with target_path.open("r", encoding="utf-8") as file_handle:
         data: Dict[str, Any] = json.load(file_handle)
-        return data
+
+    # Environment variable overrides for sensitive settings
+    if "GNB_USERNAME" in os.environ:
+        data.setdefault("gnb", {})["username"] = os.environ["GNB_USERNAME"]
+    if "GNB_PASSWORD" in os.environ:
+        data.setdefault("gnb", {})["password"] = os.environ["GNB_PASSWORD"]
+    if "GNB_LOGIN_URL" in os.environ:
+        data.setdefault("gnb", {})["login_url"] = os.environ["GNB_LOGIN_URL"]
+
+    return data
 
 
 def save_config(config_data: Dict[str, Any], config_path: Path | None = None) -> None:
