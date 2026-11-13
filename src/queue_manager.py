@@ -249,11 +249,23 @@ def process_single_queued_file(
             from src.excel_reporter import generate_gnb_rejected_report
             from src.gnb_client import run_gnb_extraction_pipeline
 
-            gnb_txs = run_gnb_extraction_pipeline(
-                config=config,
-                on_message=on_message,
-                keep_browser_open=True,
-            )
+            def _gnb_runner():
+                import asyncio
+                try:
+                    asyncio.set_event_loop(None)
+                except Exception:
+                    pass
+                return run_gnb_extraction_pipeline(
+                    config=config,
+                    on_message=on_message,
+                    keep_browser_open=True,
+                )
+
+            th_gnb = threading.Thread(target=lambda: res_container.append(_gnb_runner()))
+            res_container: List[Any] = []
+            th_gnb.start()
+            th_gnb.join()
+            gnb_txs = res_container[0] if res_container else []
             report_path = generate_gnb_rejected_report(out_dir, gnb_txs)
         else:
             report_path = run_batch_automation(

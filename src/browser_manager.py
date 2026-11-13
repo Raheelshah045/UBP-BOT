@@ -19,6 +19,10 @@ _CONTEXT: Optional[BrowserContext] = None
 _PAGE: Optional[Page] = None
 _IS_CDP_CONNECTION: bool = False
 
+_GNB_PLAYWRIGHT: Optional[Any] = None
+_GNB_CONTEXT: Optional[BrowserContext] = None
+_GNB_PAGE: Optional[Page] = None
+
 
 def configure_portable_browsers_path(browser_config: Dict[str, Any]) -> Optional[Path]:
     """Configure PLAYWRIGHT_BROWSERS_PATH to use application-controlled directories.
@@ -110,6 +114,7 @@ def launch_persistent_browser_session(
         RuntimeError: If browser launch fails with actionable diagnostic remedies.
     """
     global _PLAYWRIGHT_INSTANCE, _BROWSER, _CONTEXT, _PAGE, _IS_CDP_CONNECTION
+    global _GNB_PLAYWRIGHT, _GNB_CONTEXT, _GNB_PAGE
 
     # If asking for default/otc and already open and healthy, reuse
     if system_name == "otc" and _CONTEXT is not None and _PAGE is not None and not _PAGE.is_closed():
@@ -119,6 +124,15 @@ def launch_persistent_browser_session(
             except Exception:
                 pass
         return _BROWSER, _CONTEXT, _PAGE
+
+    # If asking for gnb and already open and healthy, reuse
+    if system_name == "gnb" and _GNB_CONTEXT is not None and _GNB_PAGE is not None and not _GNB_PAGE.is_closed():
+        if initial_url and _GNB_PAGE.url in ("about:blank", ""):
+            try:
+                _GNB_PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+        return None, _GNB_CONTEXT, _GNB_PAGE
 
     configure_portable_browsers_path(browser_config)
 
@@ -198,6 +212,10 @@ def launch_persistent_browser_session(
         _PAGE = page
         _BROWSER = None
         _IS_CDP_CONNECTION = False
+    elif system_name == "gnb":
+        _GNB_PLAYWRIGHT = playwright_inst
+        _GNB_CONTEXT = context
+        _GNB_PAGE = page
 
     if initial_url:
         try:
@@ -255,6 +273,29 @@ def get_active_browser_page() -> Optional[Page]:
 def close_browser_session() -> None:
     """Safely terminate page, context, browser, and playwright runner instances."""
     global _PLAYWRIGHT_INSTANCE, _BROWSER, _CONTEXT, _PAGE, _IS_CDP_CONNECTION
+    global _GNB_PLAYWRIGHT, _GNB_CONTEXT, _GNB_PAGE
+
+    if _GNB_PAGE is not None:
+        try:
+            if not _GNB_PAGE.is_closed():
+                _GNB_PAGE.close()
+        except Exception:
+            pass
+        _GNB_PAGE = None
+
+    if _GNB_CONTEXT is not None:
+        try:
+            _GNB_CONTEXT.close()
+        except Exception:
+            pass
+        _GNB_CONTEXT = None
+
+    if _GNB_PLAYWRIGHT is not None:
+        try:
+            _GNB_PLAYWRIGHT.stop()
+        except Exception:
+            pass
+        _GNB_PLAYWRIGHT = None
 
     if _PAGE is not None:
         try:
