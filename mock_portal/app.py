@@ -859,5 +859,120 @@ def api_search():
     )
 
 
+# Synthetic GNB Rejected Transactions Database
+GNB_SAMPLE_DATA: List[Dict[str, Any]] = [
+    {
+        "transaction_id": "GNB-TX-9011",
+        "account_consumer": "PK90GNB00012345678",
+        "datetime": "2026-11-12 11:20:15",
+        "amount": "45,000.00",
+        "status": "Rejected",
+        "reason": "Account Frozen / Inactive",
+    },
+    {
+        "transaction_id": "GNB-TX-9012",
+        "account_consumer": "PK90GNB00098765432",
+        "datetime": "2026-11-12 14:05:42",
+        "amount": "18,250.00",
+        "status": "Rejected",
+        "reason": "Invalid Routing Code",
+    },
+    {
+        "transaction_id": "GNB-TX-9013",
+        "account_consumer": "PK90GNB00055443322",
+        "datetime": "2026-11-13 09:12:00",
+        "amount": "3,400.00",
+        "status": "Rejected",
+        "reason": "Daily Limit Exceeded",
+    },
+]
+
+
+@app.route("/gnb/login", methods=["GET", "POST"])
+def gnb_login():
+    if request.method == "POST":
+        session["gnb_user"] = request.form.get("username", "gnb_operator")
+        return redirect(url_for("gnb_rejected_transactions"))
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>GNB Banking Portal - Login</title>
+      <style>
+        body { font-family: Segoe UI, sans-serif; background: #064E3B; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); width: 320px; }
+        h2 { color: #064E3B; margin-top: 0; }
+        input { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background: #059669; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+      </style>
+    </head>
+    <body>
+      <div class="card" id="gnb-login-container">
+        <h2>GNB Core System</h2>
+        <form method="POST">
+          <label>Username</label>
+          <input type="text" id="gnb-username" name="username" value="gnb_admin">
+          <label>Password</label>
+          <input type="password" id="gnb-password" name="password" value="gnb_pass">
+          <button type="submit" id="gnb-login-btn">Log In to GNB</button>
+        </form>
+      </div>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
+
+@app.route("/gnb/rejected-transactions")
+def gnb_rejected_transactions():
+    if "gnb_user" not in session:
+        return redirect(url_for("gnb_login"))
+
+    rows_html = "".join([
+        f"<tr><td>{t['transaction_id']}</td><td>{t['account_consumer']}</td><td>{t['datetime']}</td><td>{t['amount']}</td><td><span class='badge'>{t['status']}</span></td><td>{t['reason']}</td></tr>"
+        for t in GNB_SAMPLE_DATA
+    ])
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>GNB - Rejected Transactions</title>
+      <style>
+        body {{ font-family: Segoe UI, sans-serif; background: #F0FDF4; padding: 20px; }}
+        .header {{ background: #064E3B; color: white; padding: 15px; border-radius: 6px; display: flex; justify-content: space-between; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }}
+        th, td {{ border: 1px solid #E5E7EB; padding: 10px; text-align: left; }}
+        th {{ background: #0F5132; color: white; }}
+        .badge {{ background: #FEE2E2; color: #991B1B; padding: 3px 8px; border-radius: 4px; font-weight: bold; }}
+      </style>
+    </head>
+    <body>
+      <div class="header" id="gnb-dashboard" data-gnb-authenticated="true">
+        <h2>GNB Core Banking — Rejected Transactions Exception Queue</h2>
+        <span id="gnb-user-profile">Operator: {session['gnb_user']}</span>
+      </div>
+      <table id="gnb-rejected-table">
+        <thead>
+          <tr>
+            <th>Transaction ID</th>
+            <th>Account / Consumer</th>
+            <th>Date & Time</th>
+            <th>Amount (PKR)</th>
+            <th>Status</th>
+            <th>Failure Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8080, debug=True)

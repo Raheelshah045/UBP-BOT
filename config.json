@@ -97,5 +97,31 @@
     "checkpoint_db_path": "checkpoints/processing_checkpoint.db",
     "output_dir": "output",
     "logs_dir": "logs"
+  },
+  "gnb": {
+    "login_url": "http://127.0.0.1:8080/gnb/login",
+    "rejected_transactions_url": "http://127.0.0.1:8080/gnb/rejected-transactions",
+    "username": "",
+    "password": "",
+    "timeout_ms": 30000,
+    "retry_attempts": 3
+  },
+  "gnb_selectors": {
+    "login": {
+      "username_input": "#gnb-username, input[name='username']",
+      "password_input": "#gnb-password, input[type='password']",
+      "submit_button": "#gnb-login-btn, button[type='submit']",
+      "auth_indicator": "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true']"
+    },
+    "transactions": {
+      "table": "#gnb-rejected-table, table",
+      "rows": "#gnb-rejected-table tbody tr, table tbody tr",
+      "no_record_message": "#gnb-no-records, .no-records",
+      "pagination_next": "#gnb-next-page, .pagination .next"
+    }
+  },
+  "outputs": {
+    "otc_file": "output/OTC_Rejected_Transactions.xlsx",
+    "gnb_file": "output/GNB_Rejected_Transactions.xlsx"
   }
 }

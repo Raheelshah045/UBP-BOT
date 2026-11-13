@@ -24,7 +24,7 @@ from src.checkpoint import (
     save_transactions,
 )
 from src.classifier import classify_transaction
-from src.excel_reporter import generate_excel_report
+from src.excel_reporter import generate_otc_rejected_report
 from src.input_processor import process_input_file
 from src.logger import get_logger, log_event
 from src.portal_navigator import navigate_to_check_bill_status
@@ -344,14 +344,12 @@ def run_batch_automation(
 
     target_out_dir = output_dir or Path(storage_cfg.get("output_dir", "output"))
     summary = get_batch_summary(db_path, batch_id)
-    report_file = generate_excel_report(
+    report_file = generate_otc_rejected_report(
         target_out_dir,
-        input_records,
-        summary["rows"],
         summary["transactions"],
     )
-    log_event(logger, 20, f"Excel report generated successfully: {report_file}")
+    log_event(logger, 20, f"OTC Excel report generated successfully: {report_file}")
     if on_message:
-        on_message(f"Report ready: {report_file.name}")
+        on_message(f"OTC Report ready: {report_file.name}")
 
     return report_file

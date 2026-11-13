@@ -423,6 +423,34 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     )
     btn_open_out.pack(side="left", padx=4)
 
+    def trigger_gnb_extraction() -> None:
+        def worker() -> None:
+            try:
+                from src.excel_reporter import generate_gnb_rejected_report
+                from src.gnb_client import run_gnb_extraction_pipeline
+
+                txs = run_gnb_extraction_pipeline(config, on_message=lambda msg: append_log_line(f"[GNB] {msg}"))
+                rep = generate_gnb_rejected_report(output_folder_path, txs)
+                append_log_line(f"[GNB] SUCCESS: Report generated at {rep.name}")
+                messagebox.showinfo("GNB Extraction", f"GNB Rejected Transactions saved to:\n{rep.name}")
+            except Exception as exc:
+                append_log_line(f"[GNB] ERROR: {exc}")
+                messagebox.showerror("GNB Extraction Error", str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    btn_gnb = tk.Button(
+        ctrl_frame,
+        text="🏦 Extract GNB",
+        font=("Segoe UI", 9, "bold"),
+        bg="#0F5132",
+        fg="white",
+        padx=8,
+        pady=5,
+        command=trigger_gnb_extraction,
+    )
+    btn_gnb.pack(side="left", padx=4)
+
     btn_reprocess = tk.Button(
         ctrl_frame,
         text="🔁 Re-process Input",

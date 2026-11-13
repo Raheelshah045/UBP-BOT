@@ -134,8 +134,8 @@ def test_end_to_end_login_navigation_search_and_report_generation(tmp_path: Path
         assert report_path.exists()
 
         wb = openpyxl.load_workbook(report_path)
-        assert "Rejected Transaction Details" in wb.sheetnames
-        rej_sheet = wb["Rejected Transaction Details"]
+        assert "OTC Rejected Transactions" in wb.sheetnames
+        rej_sheet = wb["OTC Rejected Transactions"]
         # Exactly 1 qualifying rejection row
         assert rej_sheet.max_row == 2
         assert rej_sheet.cell(row=2, column=10).value == "Rejected"

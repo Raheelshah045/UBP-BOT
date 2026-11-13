@@ -11,6 +11,8 @@ from pathlib import Path
 
 from src.config import ensure_workspace_directories, initialize_environment, load_config
 from src.diagnostics import format_diagnostics_report, run_full_system_diagnostics
+from src.excel_reporter import generate_gnb_rejected_report
+from src.gnb_client import run_gnb_extraction_pipeline
 from src.queue_manager import set_monitoring_state, start_continuous_monitoring_worker
 from src.runner import run_batch_automation
 from src.ui import launch_gui
@@ -47,6 +49,16 @@ def parse_arguments() -> argparse.Namespace:
         "--mock",
         action="store_true",
         help="Start the local mock OTC portal web server on port 8080.",
+    )
+    parser.add_argument(
+        "--gnb",
+        action="store_true",
+        help="Extract rejected transactions from the GNB system.",
+    )
+    parser.add_argument(
+        "--all-systems",
+        action="store_true",
+        help="Run Phase 1 extraction across both OTC and GNB systems.",
     )
     parser.add_argument(
         "--diagnostics",
@@ -101,6 +113,40 @@ def main() -> None:
             print("\n[!] Stopping directory monitor.")
             set_monitoring_state(False)
             sys.exit(0)
+
+    elif args.gnb:
+        output_dir = Path(args.output)
+        print("[*] Executing GNB System extraction...")
+        gnb_txs = run_gnb_extraction_pipeline(config, on_message=lambda msg: print(f"[*] {msg}"))
+        report = generate_gnb_rejected_report(output_dir, gnb_txs)
+        print(f"[SUCCESS] GNB Report generated at: {report}")
+        sys.exit(0)
+
+    elif args.all_systems:
+        output_dir = Path(args.output)
+        input_path = Path(args.input)
+        print("[*] Executing Phase 1 Extraction — System A: OTC & System B: GNB")
+
+        # 1. OTC System
+        print("\n--- System A: OTC Extraction ---")
+        otc_rep = run_batch_automation(
+            config=config,
+            input_file_path=input_path,
+            output_dir=output_dir,
+            on_message=lambda msg: print(f"[*] {msg}"),
+        )
+
+        # 2. GNB System
+        print("\n--- System B: GNB Extraction ---")
+        gnb_txs = run_gnb_extraction_pipeline(config, on_message=lambda msg: print(f"[*] {msg}"))
+        gnb_rep = generate_gnb_rejected_report(output_dir, gnb_txs)
+
+        print("\n============================================================")
+        print("  Phase 1 Extraction Complete!")
+        print(f"  1. OTC Report: {otc_rep}")
+        print(f"  2. GNB Report: {gnb_rep}")
+        print("============================================================")
+        sys.exit(0)
 
     elif args.cli:
         input_path = Path(args.input)

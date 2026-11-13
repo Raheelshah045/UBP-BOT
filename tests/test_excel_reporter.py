@@ -96,13 +96,13 @@ def test_excel_report_lists_only_rejected_transactions_and_excludes_successful_a
 
     report_path = generate_excel_report(output_dir, input_records, processed_rows, transactions)
     assert report_path.exists()
-    assert report_path.name == "Rejected_Transaction_Details.xlsx"
+    assert report_path.name == "OTC_Rejected_Transactions.xlsx"
 
     wb = openpyxl.load_workbook(report_path)
-    assert "Rejected Transaction Details" in wb.sheetnames
+    assert "OTC Rejected Transactions" in wb.sheetnames
     assert len(wb.sheetnames) == 1  # Exactly one single sheet for rejected transaction details
 
-    rej_sheet = wb["Rejected Transaction Details"]
+    rej_sheet = wb["OTC Rejected Transactions"]
     assert rej_sheet.freeze_panes == "A2"
     # Row 1 is header, Row 2 is the ONLY rejected transaction
     assert rej_sheet.max_row == 2
