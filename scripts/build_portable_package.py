@@ -1,4 +1,4 @@
-"""Packaging and build script for OTC-BOT Portable Enterprise Distribution.
+"""Packaging and build script for UBP Bot Portable Enterprise Distribution.
 
 Compiles standalone executable bundle using PyInstaller and stages a complete,
 zero-install, non-administrative portable application directory.
@@ -15,9 +15,9 @@ def build_portable_distribution() -> Path:
     """Build the standalone PyInstaller executable and assemble the portable folder."""
     project_root = Path(__file__).resolve().parent.parent
     dist_dir = project_root / "dist"
-    portable_root = dist_dir / "OTC-BOT-Portable"
+    portable_root = dist_dir / "UBP-Bot-Portable"
 
-    print(f"[*] Packaging OTC-BOT from: {project_root}")
+    print(f"[*] Packaging UBP Bot from: {project_root}")
     print(f"[*] Target portable distribution: {portable_root}")
 
     # Step 1: Run PyInstaller to build onedir bundle
@@ -25,7 +25,7 @@ def build_portable_distribution() -> Path:
         sys.executable,
         "-m",
         "PyInstaller",
-        "--name=OTC-BOT",
+        "--name=UBP-Bot",
         "--onedir",
         "--noconfirm",
         "--clean",
@@ -43,7 +43,7 @@ def build_portable_distribution() -> Path:
     if res.returncode != 0:
         raise RuntimeError("PyInstaller build failed.")
 
-    built_app_dir = dist_dir / "OTC-BOT"
+    built_app_dir = dist_dir / "UBP-Bot"
 
     # Step 2: Prepare the final portable directory structure
     if portable_root.exists():
@@ -129,9 +129,9 @@ def build_portable_distribution() -> Path:
         "cd /d \"%~dp0\"\r\n"
         "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
         "echo ============================================================\r\n"
-        "echo   Starting OTC-BOT in Portable Non-Admin Mode\r\n"
+        "echo   Starting UBP Bot in Portable Non-Admin Mode\r\n"
         "echo ============================================================\r\n"
-        "start \"\" \"%~dp0OTC-BOT.exe\" %*\r\n"
+        "start \"\" \"%~dp0UBP-Bot.exe\" %*\r\n"
         "exit /b 0\r\n",
         encoding="ascii",
     )
@@ -140,10 +140,10 @@ def build_portable_distribution() -> Path:
     bat_diag = portable_root / "verify_environment.bat"
     bat_diag.write_text(
         "@echo off\r\n"
-        "title OTC-BOT - Environment Diagnostics\r\n"
+        "title UBP Bot - Environment Diagnostics\r\n"
         "cd /d \"%~dp0\"\r\n"
         "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
-        "\"%~dp0OTC-BOT.exe\" --diagnostics\r\n"
+        "\"%~dp0UBP-Bot.exe\" --diagnostics\r\n"
         "echo.\r\n"
         "pause\r\n",
         encoding="ascii",
@@ -153,10 +153,10 @@ def build_portable_distribution() -> Path:
     bat_mock = portable_root / "run_mock_portal.bat"
     bat_mock.write_text(
         "@echo off\r\n"
-        "title OTC-BOT - Local Mock Portal\r\n"
+        "title UBP Bot - Local Mock Portal\r\n"
         "cd /d \"%~dp0\"\r\n"
         "echo Starting Mock Portal at http://127.0.0.1:8080 ...\r\n"
-        "\"%~dp0OTC-BOT.exe\" --mock\r\n"
+        "\"%~dp0UBP-Bot.exe\" --mock\r\n"
         "pause\r\n",
         encoding="ascii",
     )
@@ -164,28 +164,32 @@ def build_portable_distribution() -> Path:
     # Step 7: Create Documentation
     doc_file = portable_root / "PORTABLE_DEPLOYMENT_GUIDE.md"
     doc_content = (
-        "# OTC-BOT Portable Deployment Guide for Restricted Windows Workstations\n\n"
+        "# UBP Bot Portable Deployment Guide for Restricted Windows Workstations\n\n"
         "## Overview\n"
-        "OTC-BOT Portable is designed for high-security enterprise environments (such as bank\n"
+        "UBP Bot Portable is designed for high-security enterprise environments (such as bank\n"
         "branches and corporate financial back-offices) where users do not have administrator\n"
         "privileges, cannot install Python system-wide, and cannot run arbitrary MSI/EXE installers.\n\n"
         "## Zero-Admin Architecture\n"
-        "1. **Embedded Executable:** Uses `OTC-BOT.exe` with bundled Python runtime.\n"
+        "1. **Embedded Executable:** Uses `UBP-Bot.exe` with bundled Python runtime.\n"
         "2. **Private Browser Runtime:** Bundles Chromium inside `browsers/` using `PLAYWRIGHT_BROWSERS_PATH`.\n"
         "3. **Zero System Writes:** All reads and writes occur inside the application directory (`input/`, `output/`, `logs/`, `checkpoints/`).\n"
         "4. **No Registry Writes:** Does not touch Windows Registry or protected system directories (`C:\\Program Files`, `C:\\Windows`).\n"
         "5. **No Credential Persistence in Binaries:** Credentials, OTPs, and cookies are never compiled into code.\n\n"
         "## Quick Start (User Mode)\n"
-        "1. Copy or extract `OTC-BOT-Portable` folder to any user directory (e.g., `D:\\OTC-BOT` or `C:\\Users\\<Username>\\OTC-BOT`).\n"
-        "2. Double-click `run_otc_bot.bat` or `OTC-BOT.exe`.\n"
-        "3. Place transaction spreadsheet (`.xlsx`) in `input/` folder.\n"
-        "4. In the application UI, click **▶ Start Monitoring**.\n"
-        "5. Extracted rejected transactions will appear in `output/Rejected_Transaction_Details.xlsx`.\n\n"
+        "1. Copy or extract `UBP-Bot-Portable` folder to any user directory (e.g., `D:\\UBP-Bot` or `C:\\Users\\<Username>\\UBP-Bot`).\n"
+        "2. Double-click `run_ubp_bot.bat` or `UBP-Bot.exe`.\n"
+        "3. Place transaction spreadsheet in `input/` folder:\n"
+        "   - `OTC_Transactions.xlsx` for OTC system\n"
+        "   - `GNB_Transactions.xlsx` for GNB system\n"
+        "4. In the application UI, click **▶ Start OTC**, **▶ Start GNB**, or **⚡ Run Both Simultaneously**.\n"
+        "5. Extracted rejected transactions will appear in `output/`:\n"
+        "   - `OTC_Rejected_Transactions.xlsx`\n"
+        "   - `GNB_Rejected_Transactions.xlsx`\n\n"
         "## Bank IT & Security Whitelisting Guide\n"
         "If your workstation uses Microsoft AppLocker, CrowdStrike Falcon, or Windows Defender Application Control (WDAC):\n\n"
         "### Option 1: Whitelist the Portable Application Directory (Recommended)\n"
-        "- Path Rule: Allow execution from `<User_Dir>\\OTC-BOT-Portable\\*`\n"
-        "- Publisher / Hash Rule: Whitelist `OTC-BOT.exe` and `browsers\\chromium-*\\chrome-win\\chrome.exe`.\n\n"
+        "- Path Rule: Allow execution from `<User_Dir>\\UBP-Bot-Portable\\*`\n"
+        "- Publisher / Hash Rule: Whitelist `UBP-Bot.exe` and `browsers\\chromium-*\\chrome-win\\chrome.exe`.\n\n"
         "### Option 2: Use Pre-installed Microsoft Edge (Zero Custom Browser Binaries)\n"
         "If IT security prohibits running portable browser binaries, configure `config.json`:\n"
         "```json\n"
@@ -194,7 +198,7 @@ def build_portable_distribution() -> Path:
         "  \"channel\": \"msedge\"\n"
         "}\n"
         "```\n"
-        "This instructs OTC-BOT to use the official, IT-managed Microsoft Edge browser (`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`).\n\n"
+        "This instructs UBP Bot to use the official, IT-managed Microsoft Edge browser (`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`).\n\n"
         "### Option 3: Chrome DevTools Protocol (CDP) Remote Debugging\n"
         "If subprocess creation is completely disabled by corporate policy:\n"
         "1. Launch Edge/Chrome manually with: `msedge.exe --remote-debugging-port=9222`\n"
@@ -207,7 +211,7 @@ def build_portable_distribution() -> Path:
         "## Pre-flight Diagnostics\n"
         "Run `verify_environment.bat` or run from command line:\n"
         "```cmd\n"
-        "OTC-BOT.exe --diagnostics\n"
+        "UBP-Bot.exe --diagnostics\n"
         "```\n"
         "This inspects folder permissions, browser binary availability, and portal network reachability.\n"
     )

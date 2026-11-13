@@ -1,7 +1,7 @@
 [project]
-name = "otc-bot"
-version = "1.0.0"
-description = "OTC Transaction Monitoring & Rejection Extraction Bot"
+name = "ubp-bot"
+version = "2.0.0"
+description = "UBP Bot — Dual-System Operations & Rejection Extraction"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

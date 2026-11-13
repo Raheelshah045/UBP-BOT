@@ -148,6 +148,27 @@ def scan_directory_for_candidate_files(
     return candidates
 
 
+def identify_system_target(file_path: Path) -> str:
+    """Identify whether an input file belongs to OTC, GNB, or is UNKNOWN.
+
+    Files named with OTC (e.g. OTC_Transactions.xlsx) route to 'otc'.
+    Files named with GNB (e.g. GNB_Transactions.xlsx) route to 'gnb'.
+    If filename cannot be reliably determined, returns 'unknown' for manual review.
+
+    Args:
+        file_path: Candidate input file path.
+
+    Returns:
+        str: 'otc', 'gnb', or 'unknown'.
+    """
+    stem = file_path.stem.upper()
+    if "OTC" in stem and "GNB" not in stem:
+        return "otc"
+    if "GNB" in stem and "OTC" not in stem:
+        return "gnb"
+    return "unknown"
+
+
 def move_file_safely(source_file: Path, target_dir: Path, max_retries: int = 5) -> Path:
     """Move a file to target directory with collision avoidance and atomic lock handling.
 

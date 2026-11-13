@@ -10,8 +10,6 @@ from typing import Any, Callable, Dict, List, Optional
 from playwright.sync_api import Page
 
 from src.browser_manager import (
-    close_browser_session,
-    get_active_browser_page,
     launch_persistent_browser_session,
 )
 from src.logger import get_logger, log_event
@@ -195,6 +193,7 @@ def run_gnb_extraction_pipeline(
     config: Dict[str, Any],
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = True,
+    browser_page: Optional[Page] = None,
 ) -> List[Dict[str, Any]]:
     """Execute the end-to-end GNB authentication and rejected transaction extraction pipeline.
 
@@ -202,6 +201,7 @@ def run_gnb_extraction_pipeline(
         config: Full configuration dictionary.
         on_message: Optional UI message hook.
         keep_browser_open: Whether to retain browser window open after run.
+        browser_page: Optional explicit dedicated GNB page.
 
     Returns:
         List[Dict[str, Any]]: Extracted GNB rejected transactions.
@@ -211,9 +211,11 @@ def run_gnb_extraction_pipeline(
     selectors = config.get("gnb_selectors", {})
     browser_cfg = config.get("browser", {})
 
-    page = get_active_browser_page()
+    page = browser_page
+    context = None
     if page is None or page.is_closed():
-        _, _, page = launch_persistent_browser_session(browser_cfg)
+        login_url = gnb_cfg.get("login_url", "http://127.0.0.1:8080/gnb/login")
+        _, context, page = launch_persistent_browser_session(browser_cfg, initial_url=login_url, system_name="gnb")
 
     auth_success = login_gnb_portal(page, gnb_cfg, selectors, on_message=on_message)
     if not auth_success:
@@ -222,7 +224,10 @@ def run_gnb_extraction_pipeline(
 
     transactions = extract_gnb_rejected_transactions(page, gnb_cfg, selectors, on_message=on_message)
 
-    if not keep_browser_open:
-        close_browser_session()
+    if not keep_browser_open and context is not None:
+        try:
+            context.close()
+        except Exception:
+            pass
 
     return transactions

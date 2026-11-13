@@ -24,6 +24,7 @@ from src.checkpoint import (
 )
 from src.file_detector import (
     compute_file_sha256,
+    identify_system_target,
     is_file_locked_or_changing,
     move_file_safely,
     scan_directory_for_candidate_files,
@@ -184,7 +185,22 @@ def process_single_queued_file(
                 on_message(f"File '{file_path.name}' is locked. If open in Excel, please close it.")
             return None
 
-        # 2. Structure validation
+        # 2. System routing identification & Structure validation
+        target_sys = identify_system_target(file_path)
+        if target_sys == "unknown":
+            err_msg = (
+                f"Cannot identify system target for '{file_path.name}'. "
+                "Filename must contain 'OTC' or 'GNB' (e.g. OTC_Transactions.xlsx). "
+                "Moved to failed/ for manual review."
+            )
+            log_event(logger, 40, err_msg)
+            moved_failed = move_file_safely(file_path, failed_dir)
+            file_hash = compute_file_sha256(moved_failed)
+            record_file_history(db_path, file_hash, moved_failed.name, str(moved_failed), "FAILED")
+            if on_message:
+                on_message(f"Ambiguous file routed to failed/: {file_path.name}")
+            return None
+
         struct_check = validate_file_structure(file_path)
         if not struct_check["is_valid"]:
             err_msg = struct_check["error"] or "Invalid structure"

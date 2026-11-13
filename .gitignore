@@ -36,6 +36,8 @@ coverage.xml
 
 # Playwright & Browser Sessions
 checkpoints/browser_profile/
+checkpoints/browser_profile_*/
+checkpoints/browser_profile*
 playwright-report/
 test-results/
 

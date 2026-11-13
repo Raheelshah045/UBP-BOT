@@ -1,4 +1,4 @@
-"""System diagnostics and pre-flight validation module for OTC-BOT.
+"""System diagnostics and pre-flight validation module for UBP Bot.
 
 Inspects the runtime environment, directory permissions, browser binaries,
 configuration validity, and network connectivity without requiring admin privileges.
@@ -282,7 +282,7 @@ def format_diagnostics_report(diagnostics: Dict[str, Any]) -> str:
 
     lines = [
         "============================================================",
-        f"  OTC-BOT Portable Pre-flight Diagnostics {status_icon}",
+        f"  UBP Bot Portable Pre-flight Diagnostics {status_icon}",
         "============================================================",
         f"Application Root: {perms.get('app_root', 'N/A')}",
         "",

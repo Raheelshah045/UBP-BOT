@@ -91,12 +91,16 @@ def verify_browser_runtime_available(browser_config: Dict[str, Any]) -> Tuple[bo
 def launch_persistent_browser_session(
     browser_config: Dict[str, Any],
     initial_url: Optional[str] = None,
+    system_name: str = "otc",
 ) -> Tuple[Optional[Browser], BrowserContext, Page]:
-    """Initialize or reuse a persistent browser session or CDP connection.
+    """Initialize or reuse a persistent browser session or CDP connection for a system.
+
+    Supports independent browser profiles and contexts per system (e.g. OTC vs GNB).
 
     Args:
         browser_config: Configuration dictionary for browser options.
         initial_url: Optional target portal URL to navigate immediately upon launch.
+        system_name: Name of system for isolated context profiling ("otc" or "gnb").
 
     Returns:
         Tuple[Optional[Browser], BrowserContext, Page]: Active browser handle (if direct launch),
@@ -107,16 +111,14 @@ def launch_persistent_browser_session(
     """
     global _PLAYWRIGHT_INSTANCE, _BROWSER, _CONTEXT, _PAGE, _IS_CDP_CONNECTION
 
-    # If context and page are already active and healthy, reuse them directly
-    if _CONTEXT is not None and _PAGE is not None and not _PAGE.is_closed():
+    # If asking for default/otc and already open and healthy, reuse
+    if system_name == "otc" and _CONTEXT is not None and _PAGE is not None and not _PAGE.is_closed():
         if initial_url and _PAGE.url in ("about:blank", ""):
             try:
                 _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
         return _BROWSER, _CONTEXT, _PAGE
-
-    close_browser_session()
 
     configure_portable_browsers_path(browser_config)
 
@@ -135,11 +137,16 @@ def launch_persistent_browser_session(
     channel = browser_config.get("channel")
     exec_path = browser_config.get("executable_path")
 
-    _PLAYWRIGHT_INSTANCE = sync_playwright().start()
+    # In Playwright Python (sync_api), each thread must have its own Playwright instance
+    # to avoid greenlet thread-affinity errors ("Cannot switch to a different thread").
+    playwright_inst = sync_playwright().start()
+    if system_name == "otc":
+        _PLAYWRIGHT_INSTANCE = playwright_inst
+
 
     # Mode 1: Connect to existing Chrome instance with remote debugging enabled
     if cdp_url:
-        _BROWSER = _PLAYWRIGHT_INSTANCE.chromium.connect_over_cdp(cdp_url)
+        _BROWSER = playwright_inst.chromium.connect_over_cdp(cdp_url)
         _CONTEXT = _BROWSER.contexts[0] if _BROWSER.contexts else _BROWSER.new_context()
         _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
         _IS_CDP_CONNECTION = True
@@ -150,8 +157,13 @@ def launch_persistent_browser_session(
                 pass
         return _BROWSER, _CONTEXT, _PAGE
 
-    # Mode 2: Launch persistent profile context so authentication session persists across restarts
-    user_data_dir_str = browser_config.get("user_data_dir", "checkpoints/browser_profile")
+    # Mode 2: Launch persistent profile context isolated per system
+    base_user_data = browser_config.get("user_data_dir", "checkpoints/browser_profile")
+    if system_name != "otc":
+        user_data_dir_str = f"{base_user_data}_{system_name}"
+    else:
+        user_data_dir_str = base_user_data
+
     user_data_path = resolve_app_path(user_data_dir_str)
     user_data_path.mkdir(parents=True, exist_ok=True)
 
@@ -169,9 +181,8 @@ def launch_persistent_browser_session(
         launch_kwargs["executable_path"] = str(resolve_app_path(exec_path))
 
     try:
-        _CONTEXT = _PLAYWRIGHT_INSTANCE.chromium.launch_persistent_context(**launch_kwargs)
+        context = playwright_inst.chromium.launch_persistent_context(**launch_kwargs)
     except Exception as exc:
-        close_browser_session()
         err_msg = str(exc)
         remedy = (
             "Browser launch failed. If your workstation security policy (AppLocker) blocks custom "
@@ -180,17 +191,22 @@ def launch_persistent_browser_session(
         )
         raise RuntimeError(f"{err_msg}\n[Diagnostic Tip]: {remedy}") from exc
 
-    _BROWSER = None
-    _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
-    _IS_CDP_CONNECTION = False
+    page = context.pages[0] if context.pages else context.new_page()
+
+    if system_name == "otc":
+        _CONTEXT = context
+        _PAGE = page
+        _BROWSER = None
+        _IS_CDP_CONNECTION = False
 
     if initial_url:
         try:
-            _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+            page.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
         except Exception:
             pass
 
-    return _BROWSER, _CONTEXT, _PAGE
+    return None, context, page
+
 
 
 def navigate_browser_to(url: str, timeout_ms: int = 15000) -> bool:

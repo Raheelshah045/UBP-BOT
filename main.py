@@ -1,7 +1,7 @@
-"""Entry point for the OTC Transaction Monitoring & Rejection Extraction Bot.
+"""Entry point for UBP Bot (Phase 1 Dual-System Operations).
 
-Supports running the continuous monitoring desktop GUI, headless folder watcher,
-single-file CLI execution, and the local mock portal server.
+Supports running the modern desktop operations interface, continuous folder monitoring,
+parallel extraction workflows for OTC and GNB, CLI mode, and local mock testing.
 """
 
 import argparse
@@ -27,7 +27,7 @@ def parse_arguments() -> argparse.Namespace:
         argparse.Namespace: Parsed command line parameters.
     """
     parser = argparse.ArgumentParser(
-        description="OTC Bot — Portable Enterprise Transaction Monitor"
+        description="UBP Bot — Dual-System Operations & Rejection Extraction"
     )
     parser.add_argument(
         "--monitor", action="store_true", help="Run continuous directory monitoring in CLI mode."

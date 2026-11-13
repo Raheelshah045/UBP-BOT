@@ -56,6 +56,8 @@ def test_gnb_extraction_and_excel_generation(tmp_path: Path) -> None:
     }
 
     transactions = run_gnb_extraction_pipeline(config, keep_browser_open=False)
+    from src.browser_manager import close_browser_session
+    close_browser_session()
     assert len(transactions) == 3
 
     report = generate_gnb_rejected_report(tmp_path, transactions)
