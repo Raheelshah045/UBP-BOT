@@ -74,16 +74,25 @@ def login_gnb_portal(
     password = gnb_config.get("password", "")
 
     login_sels = selectors.get("login", {})
-    user_input_sel = login_sels.get("username_input", "#gnb-username, input[name='username']")
-    pwd_input_sel = login_sels.get("password_input", "#gnb-password, input[type='password']")
-    submit_btn_sel = login_sels.get("submit_button", "#gnb-login-btn, button[type='submit']")
+    user_input_sel = login_sels.get(
+        "username_input",
+        "#gnb-username, input[type='email'], input[name='email'], input[name='username'], #email, #username",
+    )
+    pwd_input_sel = login_sels.get(
+        "password_input",
+        "#gnb-password, input[type='password'], input[name='password'], #password",
+    )
+    submit_btn_sel = login_sels.get(
+        "submit_button",
+        "#gnb-login-btn, button[type='submit'], input[type='submit'], button:has-text('Log in'), button:has-text('Login'), button:has-text('Sign in')",
+    )
 
     # If credentials are provided in config, auto-fill login
     if username and password:
         try:
-            page.locator(user_input_sel).fill(username, timeout=5000)
-            page.locator(pwd_input_sel).fill(password, timeout=5000)
-            page.locator(submit_btn_sel).click(timeout=5000)
+            page.locator(user_input_sel).first.fill(username, timeout=5000)
+            page.locator(pwd_input_sel).first.fill(password, timeout=5000)
+            page.locator(submit_btn_sel).first.click(timeout=5000)
             page.wait_for_load_state("networkidle", timeout=10000)
         except Exception as exc:
             log_event(logger, 30, f"Automatic GNB login submission failed: {exc}")

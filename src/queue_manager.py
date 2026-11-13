@@ -244,15 +244,26 @@ def process_single_queued_file(
             on_message(f"Starting transaction extraction for: {processing_file.name}")
         log_event(logger, 20, f"Moved '{file_path.name}' to processing folder.")
 
-        # 5. Execute batch run (reusing active page without closing browser)
-        report_path = run_batch_automation(
-            config=config,
-            input_file_path=processing_file,
-            output_dir=out_dir,
-            on_progress=on_progress,
-            on_message=on_message,
-            keep_browser_open=True,
-        )
+        # 5. Execute batch run according to target system
+        if target_sys == "gnb":
+            from src.excel_reporter import generate_gnb_rejected_report
+            from src.gnb_client import run_gnb_extraction_pipeline
+
+            gnb_txs = run_gnb_extraction_pipeline(
+                config=config,
+                on_message=on_message,
+                keep_browser_open=True,
+            )
+            report_path = generate_gnb_rejected_report(out_dir, gnb_txs)
+        else:
+            report_path = run_batch_automation(
+                config=config,
+                input_file_path=processing_file,
+                output_dir=out_dir,
+                on_progress=on_progress,
+                on_message=on_message,
+                keep_browser_open=True,
+            )
 
         if report_path and report_path.exists():
             moved_completed = move_file_safely(processing_file, completed_dir)

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.input_processor import REQUIRED_COLUMNS, read_raw_dataframe
+from src.input_processor import GNB_REQUIRED_COLUMNS, REQUIRED_COLUMNS, read_raw_dataframe
 
 
 def is_temporary_file(file_path: Path) -> bool:
@@ -100,11 +100,13 @@ def validate_file_structure(file_path: Path) -> Dict[str, Any]:
     try:
         df: pd.DataFrame = read_raw_dataframe(file_path)
         col_names = [str(c).strip() for c in df.columns]
-        missing = [col for col in REQUIRED_COLUMNS if col not in col_names]
+        target_sys = identify_system_target(file_path)
+        required = GNB_REQUIRED_COLUMNS if target_sys == "gnb" else REQUIRED_COLUMNS
+        missing = [col for col in required if col not in col_names]
         if missing:
             return {
                 "is_valid": False,
-                "error": f"Missing mandatory columns: {', '.join(missing)}",
+                "error": f"Missing mandatory columns for {target_sys.upper()}: {', '.join(missing)}",
                 "row_count": len(df),
             }
         if len(df) == 0:

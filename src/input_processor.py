@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 REQUIRED_COLUMNS = ["Consumer Number", "Bank / Service", "Date"]
+GNB_REQUIRED_COLUMNS = ["Transaction ID"]
 
 
 def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -29,8 +30,12 @@ def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             rename_map[col] = "Consumer Number"
         elif "bank" in c or "biller" in c or "service" in c:
             rename_map[col] = "Bank / Service"
+        elif "transaction id" in c or "tx id" in c or "txid" in c:
+            rename_map[col] = "Transaction ID"
         elif "date" in c:
             rename_map[col] = "Date"
+        elif "timestamp" in c or "time" in c:
+            rename_map[col] = "Timestamp"
     return df.rename(columns=rename_map)
 
 
