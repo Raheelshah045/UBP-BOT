@@ -62,23 +62,42 @@ def build_portable_distribution() -> Path:
         else:
             shutil.copy2(str(item), str(dest))
 
-    # Step 3: Copy portable browser runtime (Chromium + FFmpeg) into portable_root/browsers
+    # Step 3: Bundle required portable browser runtime (Chromium + FFmpeg) into portable_root/browsers
+    # Mandatory Check: Stop build with a clear error if Chromium is missing
     browsers_dest = portable_root / "browsers"
     browsers_dest.mkdir(parents=True, exist_ok=True)
     local_app_playwright = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
 
+    bundled_chromium = False
     if local_app_playwright.exists():
         for ch_dir in local_app_playwright.glob("chromium-*"):
             target_ch = browsers_dest / ch_dir.name
             if not target_ch.exists():
                 print(f"[*] Bundling portable browser: {ch_dir.name}...")
                 shutil.copytree(str(ch_dir), str(target_ch), dirs_exist_ok=True)
+            bundled_chromium = True
+
+        for ch_head in local_app_playwright.glob("chromium_headless_shell-*"):
+            target_head = browsers_dest / ch_head.name
+            if not target_head.exists():
+                print(f"[*] Bundling headless shell: {ch_head.name}...")
+                shutil.copytree(str(ch_head), str(target_head), dirs_exist_ok=True)
 
         for ff_dir in local_app_playwright.glob("ffmpeg-*"):
             target_ff = browsers_dest / ff_dir.name
             if not target_ff.exists():
                 print(f"[*] Bundling support runtime: {ff_dir.name}...")
                 shutil.copytree(str(ff_dir), str(target_ff), dirs_exist_ok=True)
+
+    if not bundled_chromium:
+        # Check if existing browsers_dest already has it
+        existing_chrome = list(browsers_dest.glob("chromium-*/chrome-win/chrome.exe"))
+        if not existing_chrome:
+            raise RuntimeError(
+                "[ERROR] Mandatory browser runtime missing: Playwright Chromium is not installed!\n"
+                "A genuinely portable OTC-BOT deployment requires offline Chromium binaries.\n"
+                "Please run 'playwright install chromium' before building the portable package."
+            )
 
     # Step 4: Create standard runtime directories
     for dir_name in ["input", "output", "logs", "checkpoints", "processing", "completed", "failed", "config"]:
@@ -100,44 +119,46 @@ def build_portable_distribution() -> Path:
         shutil.copy2(str(cfg_src), str(portable_root / "config" / "config.json"))
 
     # Step 6: Create Windows batch launch scripts
+    # None of these launchers call global python, py, or venv.
+    # They invoke OTC-BOT.exe directly using application-relative path %~dp0.
     # A) Main Launcher
     bat_launcher = portable_root / "run_otc_bot.bat"
     bat_launcher.write_text(
         "@echo off\r\n"
-        "title OTC-BOT — Portable Deployment\r\n"
+        "title OTC-BOT - Portable Non-Admin Deployment\r\n"
         "cd /d \"%~dp0\"\r\n"
         "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
         "echo ============================================================\r\n"
         "echo   Starting OTC-BOT in Portable Non-Admin Mode\r\n"
         "echo ============================================================\r\n"
-        "start \"\" \"%~dp0OTC-BOT.exe\"\r\n"
+        "start \"\" \"%~dp0OTC-BOT.exe\" %*\r\n"
         "exit /b 0\r\n",
-        encoding="utf-8",
+        encoding="ascii",
     )
 
     # B) Diagnostics Launcher
     bat_diag = portable_root / "verify_environment.bat"
     bat_diag.write_text(
         "@echo off\r\n"
-        "title OTC-BOT — Environment Diagnostics\r\n"
+        "title OTC-BOT - Environment Diagnostics\r\n"
         "cd /d \"%~dp0\"\r\n"
         "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
         "\"%~dp0OTC-BOT.exe\" --diagnostics\r\n"
         "echo.\r\n"
         "pause\r\n",
-        encoding="utf-8",
+        encoding="ascii",
     )
 
     # C) Mock Portal Launcher
     bat_mock = portable_root / "run_mock_portal.bat"
     bat_mock.write_text(
         "@echo off\r\n"
-        "title OTC-BOT — Local Mock Portal\r\n"
+        "title OTC-BOT - Local Mock Portal\r\n"
         "cd /d \"%~dp0\"\r\n"
         "echo Starting Mock Portal at http://127.0.0.1:8080 ...\r\n"
         "\"%~dp0OTC-BOT.exe\" --mock\r\n"
         "pause\r\n",
-        encoding="utf-8",
+        encoding="ascii",
     )
 
     # Step 7: Create Documentation

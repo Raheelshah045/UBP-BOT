@@ -49,6 +49,45 @@ def configure_portable_browsers_path(browser_config: Dict[str, Any]) -> Optional
     return None
 
 
+def verify_browser_runtime_available(browser_config: Dict[str, Any]) -> Tuple[bool, str]:
+    """Verify that a usable browser binary exists before attempting to launch.
+
+    Returns:
+        Tuple[bool, str]: (is_available, description_or_error_path)
+    """
+    cdp_url = browser_config.get("cdp_url")
+    if cdp_url:
+        return True, f"Remote CDP URL configured: {cdp_url}"
+
+    channel = browser_config.get("channel")
+    if channel:
+        return True, f"System channel configured: {channel}"
+
+    exec_path = browser_config.get("executable_path")
+    if exec_path:
+        p = resolve_app_path(exec_path)
+        if p.exists():
+            return True, str(p)
+        return False, f"Configured browser executable not found at: {p}"
+
+    browsers_dir = resolve_app_path("browsers")
+    if browsers_dir.exists():
+        for ch_dir in browsers_dir.glob("chromium-*"):
+            chrome_exe = ch_dir / "chrome-win" / "chrome.exe"
+            if chrome_exe.exists():
+                return True, str(chrome_exe)
+
+    local_app = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    if local_app.exists():
+        for ch_dir in local_app.glob("chromium-*"):
+            chrome_exe = ch_dir / "chrome-win" / "chrome.exe"
+            if chrome_exe.exists():
+                return True, str(chrome_exe)
+
+    expected = browsers_dir / "chromium-<version>" / "chrome-win" / "chrome.exe"
+    return False, f"Missing bundled Chromium runtime at: {expected}"
+
+
 def launch_persistent_browser_session(
     browser_config: Dict[str, Any],
     initial_url: Optional[str] = None,
@@ -80,6 +119,15 @@ def launch_persistent_browser_session(
     close_browser_session()
 
     configure_portable_browsers_path(browser_config)
+
+    # Pre-flight check: verify browser availability before attempting launch
+    is_avail, detail = verify_browser_runtime_available(browser_config)
+    if not is_avail:
+        raise RuntimeError(
+            f"Browser runtime error: {detail}\n"
+            "Please ensure the 'browsers' directory with Chromium binaries is present in the "
+            "application root, or configure 'channel': 'msedge' to use the pre-installed system browser."
+        )
 
     headless = browser_config.get("headless", False)
     slow_mo = browser_config.get("slow_mo_ms", 100)

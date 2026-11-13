@@ -9,11 +9,13 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import ensure_workspace_directories, load_config
+from src.config import ensure_workspace_directories, initialize_environment, load_config
 from src.diagnostics import format_diagnostics_report, run_full_system_diagnostics
 from src.queue_manager import set_monitoring_state, start_continuous_monitoring_worker
 from src.runner import run_batch_automation
 from src.ui import launch_gui
+
+initialize_environment()
 
 
 def parse_arguments() -> argparse.Namespace:

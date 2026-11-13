@@ -22,14 +22,25 @@ def get_application_root() -> Path:
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    # Check if APP_DIR override is passed (e.g. portable bundle with app/ subdirectory)
     if os.environ.get("APP_DIR"):
         return Path(os.environ["APP_DIR"]).resolve()
-    # If main is inside an 'app' directory next to 'python_runtime', root is parent
     here = Path(__file__).resolve()
     if here.parent.name == "src" and here.parent.parent.name == "app":
         return here.parent.parent.parent
     return here.parent.parent
+
+
+def initialize_environment() -> None:
+    """Initialize critical runtime environment variables before subsystem imports.
+
+    Sets PLAYWRIGHT_BROWSERS_PATH to the local application 'browsers' directory
+    if it exists and is not already defined, preventing Playwright from attempting
+    to locate or download browsers to restricted administrator paths.
+    """
+    if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
+        local_browsers = resolve_app_path("browsers")
+        if local_browsers.exists():
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_browsers)
 
 
 def resolve_app_path(relative_or_absolute: str | Path) -> Path:
