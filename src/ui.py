@@ -442,9 +442,15 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
             root.after(0, lambda: otc_auth_var.set(state_str))
 
         append_log_line("[OTC] Continuous monitoring and extraction started.")
+
+        def otc_msg(msg: str) -> None:
+            s = str(msg).strip()
+            append_log_line(s if s.startswith("[OTC]") else f"[OTC] {s}")
+
         threading.Thread(
             target=start_continuous_monitoring_worker,
-            args=(config, update_queue, update_progress, append_log_line, update_portal_state),
+            args=(config, update_queue, update_progress, otc_msg, update_portal_state),
+            kwargs={"allowed_target_system": "otc"},
             daemon=True,
         ).start()
 
@@ -482,17 +488,36 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
                     if "gnb" in f.name.lower() and f.suffix.lower() in [".xlsx", ".xls", ".csv"]
                 ]
                 gnb_file = gnb_candidates[0] if gnb_candidates else None
+
+                def gnb_msg(msg: str) -> None:
+                    s = str(msg).strip()
+                    append_log_line(s if s.startswith("[GNB]") else f"[GNB] {s}")
+
                 txs = run_gnb_extraction_pipeline(
                     config,
                     input_file_path=gnb_file,
-                    on_message=lambda msg: append_log_line(f"[GNB] {msg}"),
-                    keep_browser_open=True,
+                    on_message=gnb_msg,
+                    keep_browser_open=False,
                 )
                 gnb_auth_var.set("Authenticated")
                 out_p = Path(config.get("directories", {}).get("output_dir", "output"))
                 rep = generate_gnb_rejected_report(out_p, txs)
                 gnb_proc_var.set(f"Completed ({len(txs)})")
                 append_log_line(f"[GNB] Report generated: {rep.name} ({len(txs)} rejections)")
+
+                if gnb_file and gnb_file.exists():
+                    from src.checkpoint import record_file_history
+                    from src.file_detector import compute_file_sha256, move_file_safely
+
+                    comp_dir = Path(config.get("directories", {}).get("completed_dir", "completed"))
+                    archived = move_file_safely(gnb_file, comp_dir)
+                    f_hash = compute_file_sha256(archived)
+                    db_p = Path(
+                        config.get("storage", {}).get("checkpoint_db_path", "checkpoints/processing_checkpoint.db")
+                    )
+                    record_file_history(db_p, f_hash, archived.name, str(archived), "COMPLETED", str(rep))
+                    append_log_line(f"[GNB] Completed and archived: {archived.name}")
+
             except Exception as exc:
                 gnb_proc_var.set("Error")
                 append_log_line(f"[GNB] Extraction failed: {exc}")
@@ -513,7 +538,12 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         gnb_proc_var.set("Stopped")
         btn_start_gnb.configure(state="normal")
         btn_stop_gnb.configure(state="disabled")
-        append_log_line("[GNB] Extraction cancelled.")
+        try:
+            from src.gnb_client import close_gnb_session
+            close_gnb_session()
+        except Exception:
+            pass
+        append_log_line("[GNB] Extraction stopped by user.")
 
     def run_both_systems() -> None:
         append_log_line("[*] Launching BOTH systems concurrently in isolated pipelines...")
@@ -615,31 +645,69 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
             if not line:
                 return
 
+            # Clean duplicate prefix tags if present (e.g. "[GNB] [GNB] ...")
+            while line.startswith("[GNB] [GNB]"):
+                line = "[GNB] " + line[11:].strip()
+            while line.startswith("[OTC] [OTC]"):
+                line = "[OTC] " + line[11:].strip()
+
             lower = line.lower()
+
+            # Global broadcast messages (only explicit overall announcements)
+            is_global = (
+                lower.startswith("[ubp bot]")
+                or "[*] launching both systems" in lower
+                or "both systems" in lower
+            )
+
+            # GNB detection: any message mentioning GNB, core banking, port 8765, or transaction query
             is_gnb = (
                 "[gnb]" in lower
-                or (lower.startswith("gnb") and not lower.startswith("gnb_bot_test_data"))
+                or "gnb" in lower
                 or "core banking" in lower
+                or ":8765" in lower
+                or "tx id" in lower
             )
+
+            # OTC detection: any message mentioning OTC, BPS, consumer, portal port 5173, monitoring, or queue
             is_otc = (
                 "[otc]" in lower
                 or "[bps]" in lower
-                or "searching consumer" in lower
+                or "otc" in lower
                 or "bps" in lower
-                or (lower.startswith("otc") and not lower.startswith("otc_bot_test_data"))
+                or "consumer" in lower
+                or "check bill" in lower
+                or ":5173" in lower
+                or "continuous monitoring" in lower
+                or "directory monitoring" in lower
+                or "startup scan" in lower
+                or "monitoring worker" in lower
+                or "monitoring stopped" in lower
+                or "queue" in lower
+                or "batch" in lower
             )
 
-            if is_gnb and not is_otc:
+            if is_global:
+                otc_log_text.insert("end", f"{line}\n")
+                otc_log_text.see("end")
+                gnb_log_text.insert("end", f"{line}\n")
+                gnb_log_text.see("end")
+            elif is_gnb and not is_otc:
                 gnb_log_text.insert("end", f"{line}\n")
                 gnb_log_text.see("end")
             elif is_otc and not is_gnb:
                 otc_log_text.insert("end", f"{line}\n")
                 otc_log_text.see("end")
+            elif is_gnb and is_otc:
+                if lower.startswith("[gnb]") or "gnb" in lower.split()[:2]:
+                    gnb_log_text.insert("end", f"{line}\n")
+                    gnb_log_text.see("end")
+                else:
+                    otc_log_text.insert("end", f"{line}\n")
+                    otc_log_text.see("end")
             else:
                 otc_log_text.insert("end", f"{line}\n")
                 otc_log_text.see("end")
-                gnb_log_text.insert("end", f"{line}\n")
-                gnb_log_text.see("end")
 
         root.after(0, do_append)
 

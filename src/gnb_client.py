@@ -31,6 +31,35 @@ def is_gnb_pipeline_active() -> bool:
     return _IS_GNB_RUNNING
 
 
+def release_stale_profile_lock(profile_dir: Path) -> None:
+    """Safely terminate any orphaned browser processes holding a lock on profile_dir."""
+    try:
+        import psutil
+
+        profile_str = str(profile_dir.resolve()).lower()
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                cmd = " ".join(proc.info.get("cmdline") or []).lower()
+                if "chrome" in proc.info.get("name", "").lower() and profile_str in cmd:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=2)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception:
+        pass
+
+    for lock_name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        lock_file = profile_dir / lock_name
+        if lock_file.exists():
+            try:
+                lock_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def is_gnb_authenticated(page: Page, selectors: Dict[str, Any]) -> bool:
     """Check if the GNB session is authenticated."""
     auth_selector = (
@@ -58,17 +87,17 @@ def login_gnb_portal(
     login_url = gnb_config.get("login_url", "http://127.0.0.1:8080/")
 
     if on_message:
-        on_message(f"Connecting to GNB System at {login_url}...")
-    log_event(logger, 20, f"Connecting to GNB System at {login_url}")
+        on_message(f"[GNB] Connecting to GNB System at {login_url}...")
+    log_event(logger, 20, f"[GNB] Connecting to GNB System at {login_url}")
 
     try:
         page.goto(login_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
     except Exception as exc:
-        log_event(logger, 30, f"Notice navigating to GNB {login_url}: {exc}")
+        log_event(logger, 30, f"[GNB] Notice navigating to GNB {login_url}: {exc}")
 
     if is_gnb_authenticated(page, selectors):
         if on_message:
-            on_message("GNB session already authenticated.")
+            on_message("[GNB] GNB session already authenticated.")
         return True
 
     username = gnb_config.get("username", "")
@@ -95,15 +124,15 @@ def login_gnb_portal(
             page.locator(submit_btn_sel).first.click(timeout=5000)
             page.wait_for_load_state("networkidle", timeout=10000)
         except Exception as exc:
-            log_event(logger, 30, f"Automatic GNB login submission failed: {exc}")
+            log_event(logger, 30, f"[GNB] Automatic GNB login submission failed: {exc}")
 
     if is_gnb_authenticated(page, selectors):
         if on_message:
-            on_message("GNB authentication successful.")
+            on_message("[GNB] GNB authentication successful.")
         return True
 
     if on_message:
-        on_message("Please complete GNB login in the browser window...")
+        on_message("[GNB] Please complete GNB login in the browser window...")
 
     start_time = time.time()
     while time.time() - start_time < 300:
@@ -422,14 +451,14 @@ def navigate_to_gnb_destination(
     target_clean = rejected_url.rstrip("/")
     if target_clean and current_url != target_clean:
         if on_message:
-            on_message(f"Navigating to GNB Transactions at {rejected_url}...")
-        log_event(logger, 20, f"Navigating to GNB Transactions at {rejected_url}")
+            on_message(f"[GNB] Navigating to GNB Transactions at {rejected_url}...")
+        log_event(logger, 20, f"[GNB] Navigating to GNB Transactions at {rejected_url}")
         try:
             page.goto(rejected_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
         except Exception as nav_exc:
-            log_event(logger, 30, f"Navigation notice for {rejected_url}: {nav_exc}")
+            log_event(logger, 30, f"[GNB] Navigation notice for {rejected_url}: {nav_exc}")
     elif on_message:
-        on_message("Inspecting active GNB page for rejected transactions...")
+        on_message("[GNB] Inspecting active GNB page for rejected transactions...")
 
 
 def extract_gnb_rejected_transactions(
@@ -458,7 +487,7 @@ def extract_gnb_rejected_transactions(
     if input_file_path and Path(input_file_path).exists():
         tx_ids = extract_transaction_ids_from_file(Path(input_file_path))
         if on_message:
-            on_message(f"Loaded {len(tx_ids)} Transaction IDs from {Path(input_file_path).name}")
+            on_message(f"[GNB] Loaded {len(tx_ids)} Transaction IDs from {Path(input_file_path).name}")
 
     has_search = False
     try:
@@ -475,8 +504,8 @@ def extract_gnb_rejected_transactions(
         extracted = extract_transactions_from_active_table(page)
 
     if on_message:
-        on_message(f"Extracted {len(extracted)} rejected transactions from GNB.")
-    log_event(logger, 20, f"Successfully extracted {len(extracted)} GNB rejected transactions.")
+        on_message(f"[GNB] Extracted {len(extracted)} rejected transactions from GNB.")
+    log_event(logger, 20, f"[GNB] Successfully extracted {len(extracted)} GNB rejected transactions.")
     return extracted
 
 
@@ -484,7 +513,7 @@ def _execute_gnb_in_thread(
     config: Dict[str, Any],
     input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
-    keep_browser_open: bool = True,
+    keep_browser_open: bool = False,
 ) -> List[Dict[str, Any]]:
     """Internal execution function strictly owned by the GNB worker thread."""
     global _GNB_PW_INSTANCE, _GNB_CONTEXT, _GNB_PAGE
@@ -506,11 +535,12 @@ def _execute_gnb_in_thread(
     if not is_avail:
         raise RuntimeError(f"GNB browser error: {detail}")
 
-    pw_inst = sync_playwright().start()
-    _GNB_PW_INSTANCE = pw_inst
-
     user_data_path = resolve_app_path(browser_cfg.get("user_data_dir", "checkpoints/browser_profile") + "_gnb")
     user_data_path.mkdir(parents=True, exist_ok=True)
+    release_stale_profile_lock(user_data_path)
+
+    pw_inst = sync_playwright().start()
+    _GNB_PW_INSTANCE = pw_inst
 
     launch_kwargs: Dict[str, Any] = {
         "user_data_dir": str(user_data_path),
@@ -526,14 +556,18 @@ def _execute_gnb_in_thread(
         launch_kwargs["executable_path"] = str(resolve_app_path(browser_cfg["executable_path"]))
 
     try:
-        context = pw_inst.chromium.launch_persistent_context(**launch_kwargs)
+        try:
+            context = pw_inst.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception:
+            release_stale_profile_lock(user_data_path)
+            context = pw_inst.chromium.launch_persistent_context(**launch_kwargs)
         _GNB_CONTEXT = context
         page = context.pages[0] if context.pages else context.new_page()
         _GNB_PAGE = page
 
         auth_success = login_gnb_portal(page, gnb_cfg, selectors, on_message=on_message)
         if not auth_success:
-            log_event(logger, 40, "GNB authentication was not completed.")
+            log_event(logger, 40, "[GNB] GNB authentication was not completed.")
             return []
 
         transactions = extract_gnb_rejected_transactions(
@@ -580,7 +614,7 @@ def run_gnb_extraction_pipeline(
     config: Dict[str, Any],
     input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
-    keep_browser_open: bool = True,
+    keep_browser_open: bool = False,
     browser_page: Optional[Page] = None,
 ) -> List[Dict[str, Any]]:
     """Execute GNB extraction safely in a dedicated worker thread to prevent thread-switching errors.

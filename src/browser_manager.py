@@ -197,13 +197,19 @@ def launch_persistent_browser_session(
     try:
         context = playwright_inst.chromium.launch_persistent_context(**launch_kwargs)
     except Exception as exc:
-        err_msg = str(exc)
-        remedy = (
-            "Browser launch failed. If your workstation security policy (AppLocker) blocks custom "
-            "binaries, set 'channel': 'msedge' or 'channel': 'chrome' in config.json to use the "
-            "pre-installed system browser, or use 'cdp_url' for remote debugging."
-        )
-        raise RuntimeError(f"{err_msg}\n[Diagnostic Tip]: {remedy}") from exc
+        try:
+            from src.gnb_client import release_stale_profile_lock
+
+            release_stale_profile_lock(user_data_path)
+            context = playwright_inst.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception:
+            err_msg = str(exc)
+            remedy = (
+                "Browser launch failed. If your workstation security policy (AppLocker) blocks custom "
+                "binaries, set 'channel': 'msedge' or 'channel': 'chrome' in config.json to use the "
+                "pre-installed system browser, or use 'cdp_url' for remote debugging."
+            )
+            raise RuntimeError(f"{err_msg}\n[Diagnostic Tip]: {remedy}") from exc
 
     page = context.pages[0] if context.pages else context.new_page()
 

@@ -111,7 +111,10 @@ def pop_next_queued_file() -> Optional[Path]:
 
 
 def execute_startup_scan(
-    input_dir: Path, db_path: Path, force_reprocess: bool = False
+    input_dir: Path,
+    db_path: Path,
+    force_reprocess: bool = False,
+    allowed_target_system: Optional[str] = None,
 ) -> List[Path]:
     """Scan input folder on startup and enqueue all existing eligible files.
 
@@ -119,6 +122,7 @@ def execute_startup_scan(
         input_dir: Monitored input folder.
         db_path: Path to checkpoint database.
         force_reprocess: If True, re-enqueues files even if completed earlier.
+        allowed_target_system: Optional filter to restrict scanning ("otc" or "gnb").
 
     Returns:
         List[Path]: Newly discovered and enqueued file paths.
@@ -128,18 +132,20 @@ def execute_startup_scan(
     enqueued: List[Path] = []
 
     for item in candidates:
+        if allowed_target_system and identify_system_target(item) != allowed_target_system:
+            continue
         file_hash = compute_file_sha256(item)
         if not force_reprocess and is_file_already_completed(db_path, file_hash):
             log_event(
                 logger,
                 20,
-                f"Startup scan: Skipping already processed file '{item.name}'.",
+                f"[OTC] Startup scan: Skipping already processed file '{item.name}'.",
             )
             continue
 
         if enqueue_file_if_new(item):
             enqueued.append(item)
-            log_event(logger, 20, f"Startup scan: Enqueued candidate file '{item.name}'.")
+            log_event(logger, 20, f"[OTC] Startup scan: Enqueued candidate file '{item.name}'.")
 
     return enqueued
 
@@ -241,8 +247,8 @@ def process_single_queued_file(
         )
 
         if on_message:
-            on_message(f"Starting transaction extraction for: {processing_file.name}")
-        log_event(logger, 20, f"Moved '{file_path.name}' to processing folder.")
+            on_message(f"[{target_sys.upper()}] Starting transaction extraction for: {processing_file.name}")
+        log_event(logger, 20, f"[{target_sys.upper()}] Moved '{file_path.name}' to processing folder.")
 
         # 5. Execute batch run according to target system
         if target_sys == "gnb":
@@ -253,7 +259,7 @@ def process_single_queued_file(
                 config=config,
                 input_file_path=processing_file,
                 on_message=on_message,
-                keep_browser_open=True,
+                keep_browser_open=False,
             )
             report_path = generate_gnb_rejected_report(out_dir, gnb_txs)
         else:
@@ -303,6 +309,7 @@ def start_continuous_monitoring_worker(
     on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
     on_message: Optional[Callable[[str], None]] = None,
     on_portal_status: Optional[Callable[[str], None]] = None,
+    allowed_target_system: Optional[str] = "otc",
 ) -> None:
     """Continuous monitoring and processing loop running in background thread.
 
@@ -312,6 +319,7 @@ def start_continuous_monitoring_worker(
         on_progress: Hook reporting batch row progress.
         on_message: Hook delivering text log messages.
         on_portal_status: Hook reporting portal auth state.
+        allowed_target_system: Filter to isolate scanning ("otc" or "gnb").
     """
     global _MONITORING_ACTIVE, _IS_PAUSED
     _MONITORING_ACTIVE = True
@@ -325,12 +333,12 @@ def start_continuous_monitoring_worker(
     )
     init_checkpoint_db(db_path)
 
-    log_event(logger, 20, f"Starting continuous monitoring on: {input_dir.resolve()}")
+    log_event(logger, 20, f"[OTC] Starting continuous monitoring on: {input_dir.resolve()}")
     if on_message:
-        on_message(f"Directory monitoring active on: {input_dir.name}/")
+        on_message(f"[OTC] Directory monitoring active on: {input_dir.name}/")
 
     # Step 1: Automatic startup scan
-    execute_startup_scan(input_dir, db_path)
+    execute_startup_scan(input_dir, db_path, allowed_target_system=allowed_target_system)
 
     # Step 2: Initialize or connect to persistent browser and load portal immediately
     browser_cfg = config.get("browser", {})
@@ -342,7 +350,7 @@ def start_continuous_monitoring_worker(
     if on_portal_status:
         on_portal_status("Opening Portal...")
     if on_message:
-        on_message(f"Connecting browser to configured portal: {login_url}")
+        on_message(f"[OTC] Connecting browser to configured portal: {login_url}")
 
     _, _, page = launch_persistent_browser_session(browser_cfg, initial_url=login_url)
     if page and not page.is_closed():
@@ -354,7 +362,7 @@ def start_continuous_monitoring_worker(
         except Exception as nav_err:
             log_event(logger, 30, f"Initial navigation to {login_url} notice: {nav_err}")
             if on_message:
-                on_message(f"Notice: Cannot connect to {login_url}. Please check that portal is running.")
+                on_message(f"[OTC] Notice: Cannot connect to {login_url}. Please check that portal is running.")
             if on_portal_status:
                 on_portal_status("Connection Notice")
 
@@ -378,6 +386,8 @@ def start_continuous_monitoring_worker(
             # Check for newly dropped files in input_dir
             candidate_files = scan_directory_for_candidate_files(input_dir)
             for cand in candidate_files:
+                if allowed_target_system and identify_system_target(cand) != allowed_target_system:
+                    continue
                 file_h = compute_file_sha256(cand)
                 if not is_file_already_completed(db_path, file_h):
                     enqueue_file_if_new(cand)
@@ -423,13 +433,13 @@ def start_continuous_monitoring_worker(
                     if on_portal_status:
                         on_portal_status("Session Expired")
                     if on_message:
-                        on_message("Session expired after file processing. Manual re-login needed.")
+                        on_message("[OTC] Session expired after file processing. Manual re-login needed.")
 
         except Exception as loop_err:
             log_event(logger, 40, f"Error in monitoring loop: {loop_err}")
             if on_message:
-                on_message(f"Monitoring notice: {loop_err}")
+                on_message(f"[OTC] Monitoring notice: {loop_err}")
 
         time.sleep(poll_sec)
 
-    log_event(logger, 20, "Continuous monitoring worker terminated.")
+    log_event(logger, 20, "[OTC] Continuous monitoring worker terminated.")
