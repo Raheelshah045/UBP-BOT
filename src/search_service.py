@@ -4,7 +4,6 @@ Fills search fields dynamically by reading screen inputs, executes query via ENT
 and detects search completion states with multi-layer adaptive fallbacks for layout variations.
 """
 
-import time
 from typing import Any, Dict, Optional, Tuple
 
 from playwright.sync_api import Locator, Page
@@ -64,8 +63,11 @@ def resolve_bank_option_value(
     return None
 
 
+_LOCATOR_CACHE: Dict[str, str] = {}
+
+
 def find_dropdown_locator(page: Page, configured_selector: str) -> Optional[Locator]:
-    """Locate bank/biller dropdown adaptively using ID, label, name, role, or option inspection.
+    """Locate bank/biller dropdown adaptively with fast locator caching.
 
     Args:
         page: Active Playwright page.
@@ -74,6 +76,14 @@ def find_dropdown_locator(page: Page, configured_selector: str) -> Optional[Loca
     Returns:
         Optional[Locator]: Found select locator, or None.
     """
+    if "bank_dropdown" in _LOCATOR_CACHE:
+        try:
+            cached = page.locator(_LOCATOR_CACHE["bank_dropdown"]).first
+            if cached.is_visible(timeout=50):
+                return cached
+        except Exception:
+            _LOCATOR_CACHE.pop("bank_dropdown", None)
+
     # 1. Direct configured and standard ID selectors
     candidates = [
         "#biller-service-select",
@@ -93,7 +103,8 @@ def find_dropdown_locator(page: Page, configured_selector: str) -> Optional[Loca
             continue
         try:
             loc = page.locator(sel).first
-            if loc.is_visible(timeout=300):
+            if loc.is_visible(timeout=100):
+                _LOCATOR_CACHE["bank_dropdown"] = sel
                 return loc
         except Exception:
             continue
@@ -135,7 +146,7 @@ def find_dropdown_locator(page: Page, configured_selector: str) -> Optional[Loca
 
 
 def find_consumer_input_locator(page: Page, configured_selector: str) -> Optional[Locator]:
-    """Locate consumer number input adaptively using ID, label, placeholder, or positional analysis.
+    """Locate consumer number input adaptively with fast locator caching.
 
     Args:
         page: Active Playwright page.
@@ -144,6 +155,14 @@ def find_consumer_input_locator(page: Page, configured_selector: str) -> Optiona
     Returns:
         Optional[Locator]: Found text input locator.
     """
+    if "consumer_input" in _LOCATOR_CACHE:
+        try:
+            cached = page.locator(_LOCATOR_CACHE["consumer_input"]).first
+            if cached.is_visible(timeout=50):
+                return cached
+        except Exception:
+            _LOCATOR_CACHE.pop("consumer_input", None)
+
     # 1. Direct configured and standard selectors
     candidates = [
         "#consumer-number-input",
@@ -163,7 +182,8 @@ def find_consumer_input_locator(page: Page, configured_selector: str) -> Optiona
             continue
         try:
             loc = page.locator(sel).first
-            if loc.is_visible(timeout=300):
+            if loc.is_visible(timeout=100):
+                _LOCATOR_CACHE["consumer_input"] = sel
                 return loc
         except Exception:
             continue
@@ -249,7 +269,7 @@ def find_date_inputs(page: Page) -> Tuple[Optional[Locator], Optional[Locator]]:
 def select_bank(
     page: Page, bank_selector: str, bank_name: str, bank_mapping: Dict[str, str]
 ) -> None:
-    """Select the requested bank from the portal dropdown menu with adaptive matching.
+    """Select requested bank from dropdown if not already selected.
 
     Args:
         page: Active Playwright page.
@@ -262,14 +282,14 @@ def select_bank(
         return
 
     try:
+        current_val = dropdown.evaluate("el => el.value")
         options_data = dropdown.evaluate(
             "el => Array.from(el.options).map(o => ({ value: o.value, text: o.text }))"
         )
         options_dict = {o["value"]: o["text"] for o in options_data if o.get("value")}
         target_val = resolve_bank_option_value(bank_name, bank_mapping, options_dict)
-        if target_val:
+        if target_val and target_val != current_val:
             dropdown.select_option(value=target_val)
-            time.sleep(0.3)
     except Exception:
         pass
 
@@ -296,13 +316,12 @@ def fill_search_fields(
     bank_sel = search_sel.get("bank_select", "#biller-service-select, #bankSelect")
     consumer_sel = search_sel.get("consumer_input", "#consumer-number-input, #consumerNumberInput")
 
-    # 1. Select bank first
+    # 1. Select bank first (skips if already active)
     select_bank(page, bank_sel, bank_name, bank_mapping)
 
     # 2. Fill consumer number
     consumer_input = find_consumer_input_locator(page, consumer_sel)
     if consumer_input:
-        consumer_input.fill("")
         consumer_input.fill(str(consumer_number).strip())
 
     # 3. Populate From Date and To Date using adaptive date locator
@@ -324,9 +343,7 @@ def execute_transaction_search(
     bank_mapping: Dict[str, str],
     timeout_ms: int = 15000,
 ) -> bool:
-    """Execute transaction search by pressing ENTER on consumer field or clicking Search.
-
-    Waits explicitly for loading indicator to finish and results/alert to display.
+    """Execute transaction search with optimized latency and instant response detection.
 
     Args:
         page: Active Playwright page.
@@ -350,43 +367,50 @@ def execute_transaction_search(
         except Exception:
             pass
 
-    time.sleep(0.3)
-
-    # Trigger Search button if ENTER didn't trigger
-    search_btn_selectors = [
-        "#btn-search-bill-status",
-        "[data-testid='btn-search-bill-status']",
-        selectors.get("search", {}).get("search_button", "#btnSearch"),
-        "button:has-text('Bill Status')",
-        "button:has-text('Search')",
-        "button:has-text('Query')",
-        "button:has-text('Inquire')",
-        "button:has-text('Inquiry')",
-        "button[type='submit']",
-        "input[type='submit']",
-        "#btnSearch",
-    ]
-    for btn_sel in search_btn_selectors:
-        try:
-            loc = page.locator(btn_sel).first
-            if loc.is_visible(timeout=300):
-                # Wait briefly if button is temporarily disabled by loading state
-                for _ in range(5):
-                    if not loc.is_disabled():
-                        break
-                    time.sleep(0.2)
-                loc.click()
-                break
-        except Exception:
-            continue
-
-    # Wait for loading spinner to dismiss
     loading_sel = selectors.get("results", {}).get(
         "loading_indicator",
         "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
     )
+    results_sel = selectors.get("results", {}).get(
+        "rows", "#transactions-table tbody tr, table tbody tr"
+    )
+    no_rec_sel = selectors.get("results", {}).get(
+        "no_record_message", "#no-records-message, #noRecordsAlert"
+    )
+
+    # Fast detection: if Enter already initiated query or displayed results, avoid button search
+    already_active = False
     try:
-        if page.locator(loading_sel).first.is_visible(timeout=500):
+        already_active = (
+            page.locator(loading_sel).first.is_visible(timeout=80)
+            or page.locator(results_sel).first.is_visible(timeout=80)
+            or page.locator(no_rec_sel).first.is_visible(timeout=80)
+        )
+    except Exception:
+        already_active = False
+
+    if not already_active:
+        search_btn_selectors = [
+            "#btn-search-bill-status",
+            "[data-testid='btn-search-bill-status']",
+            selectors.get("search", {}).get("search_button", "#btnSearch"),
+            "button:has-text('Bill Status')",
+            "button:has-text('Search')",
+            "button[type='submit']",
+            "#btnSearch",
+        ]
+        for btn_sel in search_btn_selectors:
+            try:
+                loc = page.locator(btn_sel).first
+                if loc.is_visible(timeout=100):
+                    loc.click()
+                    break
+            except Exception:
+                continue
+
+    # Wait for loading spinner to dismiss
+    try:
+        if page.locator(loading_sel).first.is_visible(timeout=300):
             page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=timeout_ms)
     except PlaywrightTimeoutError:
         pass

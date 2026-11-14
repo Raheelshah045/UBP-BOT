@@ -59,8 +59,8 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
 
     root = tk.Tk()
     root.title("UBP Bot — Operations Dashboard (Phase 1)")
-    root.geometry("1060x860")
-    root.minsize(980, 750)
+    root.geometry("1160x880")
+    root.minsize(1040, 760)
     root.configure(bg="#F8FAFC")
 
     # Theme & Colors
@@ -544,40 +544,102 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     progress_bar = ttk.Progressbar(prog_frame, mode="determinate", style="TProgressbar")
     progress_bar.pack(fill="x")
 
-    # 5. LIVE ACTIVITY CONSOLE (LOGS)
-    log_card = tk.LabelFrame(
-        main_container,
-        text="  Live Operations Activity  ",
-        font=("Segoe UI", 10, "bold"),
-        fg=TEXT_MAIN,
+    # 5. DUAL LIVE ACTIVITY CONSOLES (SIDE-BY-SIDE)
+    consoles_container = tk.Frame(main_container, bg=BG_MAIN)
+    consoles_container.pack(fill="both", expand=True)
+    consoles_container.columnconfigure(0, weight=1)
+    consoles_container.columnconfigure(1, weight=1)
+    consoles_container.rowconfigure(0, weight=1)
+
+    # --- System A: OTC Terminal (Left) ---
+    otc_term_card = tk.LabelFrame(
+        consoles_container,
+        text="  🖥️ System A — OTC Live Console (BPS Portal)  ",
+        font=("Segoe UI", 9, "bold"),
+        fg="#1E3A8A",
         bg=BG_CARD,
-        padx=12,
-        pady=10,
+        padx=8,
+        pady=6,
         relief="solid",
         bd=1,
     )
-    log_card.pack(fill="both", expand=True)
+    otc_term_card.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
-    log_text = tk.Text(
-        log_card,
+    otc_log_text = tk.Text(
+        otc_term_card,
         font=("Consolas", 9),
         bg="#0F172A",
-        fg="#F1F5F9",
+        fg="#93C5FD",
         wrap="word",
         relief="flat",
-        padx=10,
-        pady=8,
+        padx=8,
+        pady=6,
     )
-    log_scroll = ttk.Scrollbar(log_card, command=log_text.yview)
-    log_text.configure(yscrollcommand=log_scroll.set)
+    otc_scroll = ttk.Scrollbar(otc_term_card, command=otc_log_text.yview)
+    otc_log_text.configure(yscrollcommand=otc_scroll.set)
+    otc_scroll.pack(side="right", fill="y")
+    otc_log_text.pack(side="left", fill="both", expand=True)
 
-    log_scroll.pack(side="right", fill="y")
-    log_text.pack(side="left", fill="both", expand=True)
+    # --- System B: GNB Terminal (Right) ---
+    gnb_term_card = tk.LabelFrame(
+        consoles_container,
+        text="  🏦 System B — GNB Live Console (Core Banking)  ",
+        font=("Segoe UI", 9, "bold"),
+        fg="#065F46",
+        bg=BG_CARD,
+        padx=8,
+        pady=6,
+        relief="solid",
+        bd=1,
+    )
+    gnb_term_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+    gnb_log_text = tk.Text(
+        gnb_term_card,
+        font=("Consolas", 9),
+        bg="#061A14",
+        fg="#86EFAC",
+        wrap="word",
+        relief="flat",
+        padx=8,
+        pady=6,
+    )
+    gnb_scroll = ttk.Scrollbar(gnb_term_card, command=gnb_log_text.yview)
+    gnb_log_text.configure(yscrollcommand=gnb_scroll.set)
+    gnb_scroll.pack(side="right", fill="y")
+    gnb_log_text.pack(side="left", fill="both", expand=True)
 
     def append_log_line(msg: str) -> None:
         def do_append():
-            log_text.insert("end", f"{msg}\n")
-            log_text.see("end")
+            line = str(msg).strip()
+            if not line:
+                return
+
+            lower = line.lower()
+            is_gnb = (
+                "[gnb]" in lower
+                or (lower.startswith("gnb") and not lower.startswith("gnb_bot_test_data"))
+                or "core banking" in lower
+            )
+            is_otc = (
+                "[otc]" in lower
+                or "[bps]" in lower
+                or "searching consumer" in lower
+                or "bps" in lower
+                or (lower.startswith("otc") and not lower.startswith("otc_bot_test_data"))
+            )
+
+            if is_gnb and not is_otc:
+                gnb_log_text.insert("end", f"{line}\n")
+                gnb_log_text.see("end")
+            elif is_otc and not is_gnb:
+                otc_log_text.insert("end", f"{line}\n")
+                otc_log_text.see("end")
+            else:
+                otc_log_text.insert("end", f"{line}\n")
+                otc_log_text.see("end")
+                gnb_log_text.insert("end", f"{line}\n")
+                gnb_log_text.see("end")
 
         root.after(0, do_append)
 

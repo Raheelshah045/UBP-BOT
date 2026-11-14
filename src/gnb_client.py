@@ -239,7 +239,7 @@ def parse_single_gnb_row(
 
 
 def extract_transactions_from_active_table(page: Page) -> List[Dict[str, Any]]:
-    """Extract all qualifying rejected transactions from the currently rendered table.
+    """Extract all qualifying rejected transactions from active table via fast DOM evaluation.
 
     Args:
         page: Active Playwright page.
@@ -247,22 +247,23 @@ def extract_transactions_from_active_table(page: Page) -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: List of rejected transaction dictionaries.
     """
-    rows = page.locator("table tbody tr")
-    row_count = rows.count()
-    if row_count == 0:
+    try:
+        data = page.evaluate("""() => {
+            const ths = Array.from(document.querySelectorAll('table thead th')).map(th => th.innerText.trim());
+            const rows = Array.from(document.querySelectorAll('table tbody tr')).map(tr =>
+                Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim())
+            );
+            return { headers: ths, rows: rows };
+        }""")
+    except Exception:
         return []
 
-    ths = page.locator("table thead th").all()
-    headers = [th.inner_text().strip().lower() for th in ths]
+    headers = [str(h).lower() for h in data.get("headers", [])]
     mapping = map_gnb_table_headers(headers)
+    raw_rows = data.get("rows", [])
 
     results: List[Dict[str, Any]] = []
-    for idx in range(row_count):
-        row = rows.nth(idx)
-        cells = row.locator("td")
-        if cells.count() < 4:
-            continue
-        texts = [cells.nth(i).inner_text().strip() for i in range(cells.count())]
+    for texts in raw_rows:
         parsed = parse_single_gnb_row(texts, mapping)
         if parsed:
             results.append(parsed)
@@ -270,7 +271,7 @@ def extract_transactions_from_active_table(page: Page) -> List[Dict[str, Any]]:
 
 
 def query_single_gnb_transaction(page: Page, tx_id: str) -> List[Dict[str, Any]]:
-    """Submit a single Transaction ID in GNB and extract table rows.
+    """Submit a single Transaction ID in GNB and extract table rows with low latency.
 
     Args:
         page: Active Playwright page.
@@ -281,7 +282,7 @@ def query_single_gnb_transaction(page: Page, tx_id: str) -> List[Dict[str, Any]]
     """
     page.locator("#transactionId, input[name='transactionId']").first.fill(tx_id)
     page.locator("#searchBtn, button:has-text('Search')").first.click()
-    page.wait_for_timeout(350)
+    page.wait_for_timeout(150)
     return extract_transactions_from_active_table(page)
 
 
@@ -290,7 +291,7 @@ def search_gnb_by_transaction_ids(
     tx_ids: List[str],
     on_message: Optional[Callable[[str], None]] = None,
 ) -> List[Dict[str, Any]]:
-    """Search GNB portal sequentially for each transaction ID in input list.
+    """Search GNB portal with high-speed batch resolution and sequential fallback.
 
     Args:
         page: Active Playwright page.
@@ -302,6 +303,42 @@ def search_gnb_by_transaction_ids(
     """
     extracted: List[Dict[str, Any]] = []
     total = len(tx_ids)
+    remaining_ids = set(str(x).strip() for x in tx_ids if str(x).strip())
+
+    # Fast batch query optimization across full table if portal supports date search
+    try:
+        from_inp = page.locator("#fromDate, input[name='fromDate']").first
+        to_inp = page.locator("#toDate, input[name='toDate']").first
+        if from_inp.is_visible(timeout=300) and to_inp.is_visible(timeout=300):
+            if on_message:
+                on_message(f"Running high-speed batch query for {total} transactions...")
+            from_inp.fill("2026-01-01")
+            to_inp.fill("2026-12-31")
+            page.locator("#transactionId, input[name='transactionId']").first.fill("")
+            page.locator("#searchBtn, button:has-text('Search')").first.click()
+            page.wait_for_timeout(350)
+
+            batch_rows = extract_transactions_from_active_table(page)
+            batch_rejections = {str(r.get("transaction_id", "")).strip(): r for r in batch_rows}
+
+            for idx, tx_id in enumerate(tx_ids, 1):
+                clean_id = str(tx_id).strip()
+                if clean_id in batch_rejections:
+                    extracted.append(batch_rejections[clean_id])
+                    remaining_ids.discard(clean_id)
+                    if on_message:
+                        on_message(f"[{idx}/{total}] Tx ID {clean_id}: REJECTED/FAILED -> Extracted (Batch)")
+                elif any(clean_id in r_id for r_id in batch_rejections):
+                    remaining_ids.discard(clean_id)
+                    if on_message:
+                        on_message(f"[{idx}/{total}] Tx ID {clean_id}: Verified (Approved/Pending)")
+
+            if not remaining_ids:
+                if on_message:
+                    on_message(f"Batch resolution complete: all {total} transactions resolved.")
+                return extracted
+    except Exception:
+        pass
 
     try:
         page.locator("#fromDate").first.fill("")
@@ -311,7 +348,7 @@ def search_gnb_by_transaction_ids(
 
     for idx, tx_id in enumerate(tx_ids, 1):
         clean_id = str(tx_id).strip()
-        if not clean_id:
+        if not clean_id or clean_id not in remaining_ids:
             continue
         try:
             tx_rows = query_single_gnb_transaction(page, clean_id)
