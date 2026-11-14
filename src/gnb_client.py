@@ -7,6 +7,7 @@ from the OTC workflow.
 
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
@@ -115,17 +116,269 @@ def login_gnb_portal(
     return False
 
 
-def extract_gnb_rejected_transactions(
+def extract_transaction_ids_from_file(file_path: Path) -> List[str]:
+    """Read a spreadsheet file and return all Transaction IDs as clean strings.
+
+    Args:
+        file_path: Path to Excel or CSV file.
+
+    Returns:
+        List[str]: Clean Transaction ID strings.
+    """
+    from src.input_processor import read_raw_dataframe
+
+    df = read_raw_dataframe(file_path)
+    id_col = None
+    for col in df.columns:
+        clean = str(col).strip().lower()
+        if any(k in clean for k in ["transaction id", "tran id", "tran_id", "tranid"]):
+            id_col = col
+            break
+
+    if id_col is None:
+        return []
+
+    return [str(val).strip() for val in df[id_col].dropna().tolist() if str(val).strip()]
+
+
+def map_gnb_table_headers(headers: List[str]) -> Dict[str, int]:
+    """Map GNB table headers to field keys dynamically.
+
+    Args:
+        headers: List of lowercased header names.
+
+    Returns:
+        Dict[str, int]: Mapping of field names to column indices.
+    """
+    mapping: Dict[str, int] = {}
+    for idx, raw_h in enumerate(headers):
+        h = raw_h.strip().lower()
+        if any(k in h for k in ["tran id", "tran_id", "transaction id", "transaction_id", "tx id"]):
+            mapping["tx_id"] = idx
+        elif "stan" in h:
+            mapping["stan"] = idx
+        elif any(k in h for k in ["date & time", "datetime", "date/time"]):
+            mapping["datetime"] = idx
+        elif "date" in h:
+            mapping["date"] = idx
+        elif "time" in h:
+            mapping["time"] = idx
+        elif "status" in h:
+            mapping["status"] = idx
+        elif "amount" in h:
+            mapping["amount"] = idx
+        elif any(k in h for k in ["consumer", "account", "from acct"]):
+            if "account" not in mapping:
+                mapping["account"] = idx
+        elif any(k in h for k in ["type", "tran_type"]):
+            mapping["type"] = idx
+        elif any(k in h for k in ["reason", "failure reason"]):
+            mapping["reason"] = idx
+    return mapping
+
+
+def parse_single_gnb_row(
+    texts: List[str], mapping: Dict[str, int]
+) -> Optional[Dict[str, Any]]:
+    """Parse a single table row text array into a transaction dictionary.
+
+    Args:
+        texts: Cell text values from table row.
+        mapping: Header index mapping.
+
+    Returns:
+        Optional[Dict[str, Any]]: Extracted transaction if qualifying, else None.
+    """
+    if len(texts) < 4:
+        return None
+
+    row_str = " ".join(texts).lower()
+    if "enter a transaction id" in row_str or "no records found" in row_str:
+        return None
+
+    tx_idx = mapping.get("tx_id", 0 if len(texts) < 10 else 1)
+    status_idx = mapping.get("status", 4 if len(texts) < 10 else 5)
+    acct_idx = mapping.get("account", 1 if len(texts) < 10 else 8)
+    date_idx = mapping.get("date", 2 if len(texts) < 10 else 3)
+    time_idx = mapping.get("time", 2 if len(texts) < 10 else 4)
+    amt_idx = mapping.get("amount", 3 if len(texts) < 10 else 12)
+    reason_idx = mapping.get("reason")
+    type_idx = mapping.get("type", 0)
+
+    tx_id = texts[tx_idx] if tx_idx < len(texts) else ""
+    status = texts[status_idx] if status_idx < len(texts) else ""
+
+    if status.upper() not in ["FAILED", "REJECTED"]:
+        return None
+
+    date_val = texts[date_idx] if date_idx < len(texts) else ""
+    time_val = texts[time_idx] if time_idx < len(texts) else ""
+    if mapping.get("datetime") and " " in date_val:
+        parts = date_val.split(" ", 1)
+        date_val, time_val = parts[0], parts[1]
+
+    amount_val = texts[amt_idx] if amt_idx < len(texts) else ""
+    acct_val = texts[acct_idx] if acct_idx < len(texts) else ""
+
+    if reason_idx is not None and reason_idx < len(texts):
+        reason_val = texts[reason_idx]
+    elif type_idx < len(texts) and texts[type_idx]:
+        reason_val = f"Transaction Failed ({texts[type_idx]})"
+    else:
+        reason_val = "Rejected in GNB"
+
+    return {
+        "transaction_id": tx_id,
+        "account_consumer": acct_val,
+        "transaction_date": date_val,
+        "transaction_time": time_val,
+        "amount": amount_val,
+        "status": status,
+        "failure_reason": reason_val,
+    }
+
+
+def extract_transactions_from_active_table(page: Page) -> List[Dict[str, Any]]:
+    """Extract all qualifying rejected transactions from the currently rendered table.
+
+    Args:
+        page: Active Playwright page.
+
+    Returns:
+        List[Dict[str, Any]]: List of rejected transaction dictionaries.
+    """
+    rows = page.locator("table tbody tr")
+    row_count = rows.count()
+    if row_count == 0:
+        return []
+
+    ths = page.locator("table thead th").all()
+    headers = [th.inner_text().strip().lower() for th in ths]
+    mapping = map_gnb_table_headers(headers)
+
+    results: List[Dict[str, Any]] = []
+    for idx in range(row_count):
+        row = rows.nth(idx)
+        cells = row.locator("td")
+        if cells.count() < 4:
+            continue
+        texts = [cells.nth(i).inner_text().strip() for i in range(cells.count())]
+        parsed = parse_single_gnb_row(texts, mapping)
+        if parsed:
+            results.append(parsed)
+    return results
+
+
+def query_single_gnb_transaction(page: Page, tx_id: str) -> List[Dict[str, Any]]:
+    """Submit a single Transaction ID in GNB and extract table rows.
+
+    Args:
+        page: Active Playwright page.
+        tx_id: Clean Transaction ID.
+
+    Returns:
+        List[Dict[str, Any]]: Extracted rejected transactions, if any.
+    """
+    page.locator("#transactionId, input[name='transactionId']").first.fill(tx_id)
+    page.locator("#searchBtn, button:has-text('Search')").first.click()
+    page.wait_for_timeout(350)
+    return extract_transactions_from_active_table(page)
+
+
+def search_gnb_by_transaction_ids(
     page: Page,
-    gnb_config: Dict[str, Any],
-    selectors: Dict[str, Any],
+    tx_ids: List[str],
     on_message: Optional[Callable[[str], None]] = None,
 ) -> List[Dict[str, Any]]:
-    """Navigate to GNB rejected transactions page and extract all records."""
+    """Search GNB portal sequentially for each transaction ID in input list.
+
+    Args:
+        page: Active Playwright page.
+        tx_ids: List of transaction ID strings.
+        on_message: Optional UI message callback.
+
+    Returns:
+        List[Dict[str, Any]]: Extracted rejected transactions.
+    """
+    extracted: List[Dict[str, Any]] = []
+    total = len(tx_ids)
+
+    try:
+        page.locator("#fromDate").first.fill("")
+        page.locator("#toDate").first.fill("")
+    except Exception:
+        pass
+
+    for idx, tx_id in enumerate(tx_ids, 1):
+        clean_id = str(tx_id).strip()
+        if not clean_id:
+            continue
+        try:
+            tx_rows = query_single_gnb_transaction(page, clean_id)
+            if tx_rows:
+                extracted.extend(tx_rows)
+                msg = f"[{idx}/{total}] Tx ID {clean_id}: REJECTED/FAILED -> Extracted"
+            else:
+                msg = f"[{idx}/{total}] Tx ID {clean_id}: Verified (Approved/Pending/None)"
+            if on_message:
+                on_message(msg)
+        except Exception as exc:
+            if on_message:
+                on_message(f"[{idx}/{total}] Error querying Tx ID {clean_id}: {exc}")
+
+    return extracted
+
+
+def search_gnb_general_date_range(
+    page: Page,
+    on_message: Optional[Callable[[str], None]] = None,
+) -> List[Dict[str, Any]]:
+    """Perform a broad search on GNB portal when no specific input file is provided.
+
+    Args:
+        page: Active Playwright page.
+        on_message: Optional UI message callback.
+
+    Returns:
+        List[Dict[str, Any]]: Extracted rejected transactions.
+    """
+    search_input = page.locator("#transactionId, input[name='transactionId']").first
+    from_date_input = page.locator("#fromDate, input[name='fromDate']").first
+    to_date_input = page.locator("#toDate, input[name='toDate']").first
+    search_btn = page.locator("#searchBtn, button:has-text('Search')").first
+
+    try:
+        if from_date_input.is_visible(timeout=1000):
+            from_date_input.fill("2026-01-01")
+            to_date_input.fill("2026-12-31")
+            search_input.fill("")
+            search_btn.click()
+            page.wait_for_timeout(1000)
+        elif search_btn.is_visible(timeout=1000):
+            search_btn.click()
+            page.wait_for_timeout(1000)
+    except Exception as exc:
+        if on_message:
+            on_message(f"General search notice: {exc}")
+
+    return extract_transactions_from_active_table(page)
+
+
+def navigate_to_gnb_destination(
+    page: Page,
+    gnb_config: Dict[str, Any],
+    on_message: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Ensure browser page is on configured GNB destination URL.
+
+    Args:
+        page: Active Playwright page.
+        gnb_config: GNB configuration dictionary.
+        on_message: Optional UI message callback.
+    """
     logger = get_logger("gnb_client")
     configured_rej_url = gnb_config.get("rejected_transactions_url")
     base_url = gnb_config.get("login_url", "http://127.0.0.1:8080/")
-
     rejected_url = configured_rej_url if configured_rej_url else base_url
 
     current_url = page.url.rstrip("/")
@@ -138,57 +391,51 @@ def extract_gnb_rejected_transactions(
             page.goto(rejected_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
         except Exception as nav_exc:
             log_event(logger, 30, f"Navigation notice for {rejected_url}: {nav_exc}")
-    else:
+    elif on_message:
+        on_message("Inspecting active GNB page for rejected transactions...")
+
+
+def extract_gnb_rejected_transactions(
+    page: Page,
+    gnb_config: Dict[str, Any],
+    selectors: Dict[str, Any],
+    input_file_path: Optional[Path] = None,
+    on_message: Optional[Callable[[str], None]] = None,
+) -> List[Dict[str, Any]]:
+    """Navigate to GNB rejected transactions page and extract all qualifying records.
+
+    Args:
+        page: Active Playwright page.
+        gnb_config: GNB configuration dictionary.
+        selectors: GNB selector mappings.
+        input_file_path: Optional input spreadsheet with Transaction IDs.
+        on_message: Optional UI callback for log events.
+
+    Returns:
+        List[Dict[str, Any]]: List of extracted rejected transactions.
+    """
+    logger = get_logger("gnb_client")
+    navigate_to_gnb_destination(page, gnb_config, on_message=on_message)
+
+    tx_ids: List[str] = []
+    if input_file_path and Path(input_file_path).exists():
+        tx_ids = extract_transaction_ids_from_file(Path(input_file_path))
         if on_message:
-            on_message("Inspecting active GNB page for rejected transactions...")
+            on_message(f"Loaded {len(tx_ids)} Transaction IDs from {Path(input_file_path).name}")
 
-    tx_sels = selectors.get("transactions", {})
-    table_sel = tx_sels.get("table", "#gnb-rejected-table, table")
-    rows_sel = tx_sels.get("rows", "#gnb-rejected-table tbody tr, table tbody tr")
-
+    has_search = False
     try:
-        page.wait_for_selector(table_sel, timeout=10000)
+        search_ctrl = page.locator("#searchBtn, button:has-text('Search'), #transactionId").first
+        has_search = search_ctrl.is_visible(timeout=1500)
     except Exception:
-        log_event(logger, 30, "GNB rejected table not found or no records available.")
-        return []
+        has_search = False
 
-    rows = page.locator(rows_sel)
-    row_count = rows.count()
-    log_event(logger, 20, f"Found {row_count} rows in GNB rejected table.")
-
-    extracted: List[Dict[str, Any]] = []
-    for idx in range(row_count):
-        row = rows.nth(idx)
-        cells = row.locator("td")
-        if cells.count() < 4:
-            continue
-
-        texts = [cells.nth(i).inner_text().strip() for i in range(cells.count())]
-
-        tx_id = texts[0] if len(texts) > 0 else ""
-        account = texts[1] if len(texts) > 1 else ""
-        datetime_val = texts[2] if len(texts) > 2 else ""
-        amount = texts[3] if len(texts) > 3 else ""
-        status = texts[4] if len(texts) > 4 else "Rejected"
-        reason = texts[5] if len(texts) > 5 else "Rejected in GNB"
-
-        date_val = ""
-        time_val = ""
-        if " " in datetime_val:
-            parts = datetime_val.split(" ", 1)
-            date_val, time_val = parts[0], parts[1]
-        else:
-            date_val = datetime_val
-
-        extracted.append({
-            "transaction_id": tx_id,
-            "account_consumer": account,
-            "transaction_date": date_val,
-            "transaction_time": time_val,
-            "amount": amount,
-            "status": status,
-            "failure_reason": reason,
-        })
+    if has_search and tx_ids:
+        extracted = search_gnb_by_transaction_ids(page, tx_ids, on_message=on_message)
+    elif has_search:
+        extracted = search_gnb_general_date_range(page, on_message=on_message)
+    else:
+        extracted = extract_transactions_from_active_table(page)
 
     if on_message:
         on_message(f"Extracted {len(extracted)} rejected transactions from GNB.")
@@ -198,6 +445,7 @@ def extract_gnb_rejected_transactions(
 
 def _execute_gnb_in_thread(
     config: Dict[str, Any],
+    input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = True,
 ) -> List[Dict[str, Any]]:
@@ -251,7 +499,13 @@ def _execute_gnb_in_thread(
             log_event(logger, 40, "GNB authentication was not completed.")
             return []
 
-        transactions = extract_gnb_rejected_transactions(page, gnb_cfg, selectors, on_message=on_message)
+        transactions = extract_gnb_rejected_transactions(
+            page,
+            gnb_cfg,
+            selectors,
+            input_file_path=input_file_path,
+            on_message=on_message,
+        )
         return transactions
 
     finally:
@@ -287,6 +541,7 @@ def close_gnb_session() -> None:
 
 def run_gnb_extraction_pipeline(
     config: Dict[str, Any],
+    input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = True,
     browser_page: Optional[Page] = None,
@@ -309,7 +564,12 @@ def run_gnb_extraction_pipeline(
 
     def thread_entry():
         try:
-            res = _execute_gnb_in_thread(config, on_message=on_message, keep_browser_open=keep_browser_open)
+            res = _execute_gnb_in_thread(
+                config,
+                input_file_path=input_file_path,
+                on_message=on_message,
+                keep_browser_open=keep_browser_open,
+            )
             result_container.append(res)
         except Exception as exc:
             error_container.append(exc)

@@ -251,6 +251,7 @@ def process_single_queued_file(
 
             gnb_txs = run_gnb_extraction_pipeline(
                 config=config,
+                input_file_path=processing_file,
                 on_message=on_message,
                 keep_browser_open=True,
             )

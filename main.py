@@ -116,8 +116,13 @@ def main() -> None:
 
     elif args.gnb:
         output_dir = Path(args.output)
+        input_path = Path(args.input) if args.input and Path(args.input).exists() else None
         print("[*] Executing GNB System extraction...")
-        gnb_txs = run_gnb_extraction_pipeline(config, on_message=lambda msg: print(f"[*] {msg}"))
+        gnb_txs = run_gnb_extraction_pipeline(
+            config,
+            input_file_path=input_path,
+            on_message=lambda msg: print(f"[*] {msg}"),
+        )
         report = generate_gnb_rejected_report(output_dir, gnb_txs)
         print(f"[SUCCESS] GNB Report generated at: {report}")
         sys.exit(0)
@@ -138,7 +143,12 @@ def main() -> None:
 
         # 2. GNB System
         print("\n--- System B: GNB Extraction ---")
-        gnb_txs = run_gnb_extraction_pipeline(config, on_message=lambda msg: print(f"[*] {msg}"))
+        gnb_in = input_path if "gnb" in input_path.name.lower() else None
+        gnb_txs = run_gnb_extraction_pipeline(
+            config,
+            input_file_path=gnb_in,
+            on_message=lambda msg: print(f"[*] {msg}"),
+        )
         gnb_rep = generate_gnb_rejected_report(output_dir, gnb_txs)
 
         print("\n============================================================")

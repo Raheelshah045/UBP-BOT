@@ -476,8 +476,15 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
             try:
                 append_log_line("[GNB] Launching independent GNB extraction pipeline...")
                 gnb_auth_var.set("Authenticating...")
+                in_dir = Path(config.get("directories", {}).get("input_dir", "input"))
+                gnb_candidates = [
+                    f for f in in_dir.glob("*")
+                    if "gnb" in f.name.lower() and f.suffix.lower() in [".xlsx", ".xls", ".csv"]
+                ]
+                gnb_file = gnb_candidates[0] if gnb_candidates else None
                 txs = run_gnb_extraction_pipeline(
                     config,
+                    input_file_path=gnb_file,
                     on_message=lambda msg: append_log_line(f"[GNB] {msg}"),
                     keep_browser_open=True,
                 )
