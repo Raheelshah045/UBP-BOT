@@ -31,7 +31,7 @@ If your workstation uses Microsoft AppLocker, CrowdStrike Falcon, or Windows Def
 - Publisher / Hash Rule: Whitelist `UBP-Bot.exe` and `browsers\chromium-*\chrome-win\chrome.exe`.
 
 ### Option 2: Use Pre-installed Microsoft Edge (Zero Custom Browser Binaries)
-If IT security prohibits running portable browser binaries, configure `config.json`:
+If IT security prohibits running portable browser binaries, configure `config/config.json`:
 ```json
 "browser": {
   "headless": false,
@@ -43,7 +43,7 @@ This instructs UBP Bot to use the official, IT-managed Microsoft Edge browser (`
 ### Option 3: Chrome DevTools Protocol (CDP) Remote Debugging
 If subprocess creation is completely disabled by corporate policy:
 1. Launch Edge/Chrome manually with: `msedge.exe --remote-debugging-port=9222`
-2. In `config.json`, set:
+2. In `config/config.json`, set:
 ```json
 "browser": {
   "cdp_url": "http://localhost:9222"

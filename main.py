@@ -9,7 +9,12 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import ensure_workspace_directories, initialize_environment, load_config
+from src.config import (
+    ensure_workspace_directories,
+    get_application_root,
+    initialize_environment,
+    load_config,
+)
 from src.diagnostics import format_diagnostics_report, run_full_system_diagnostics
 from src.excel_reporter import generate_gnb_rejected_report
 from src.gnb_client import run_gnb_extraction_pipeline
@@ -43,7 +48,10 @@ def parse_arguments() -> argparse.Namespace:
         "--output", type=str, default="output", help="Directory to save resulting Excel reports."
     )
     parser.add_argument(
-        "--config", type=str, default="config.json", help="Path to JSON configuration file."
+        "--config",
+        type=str,
+        default="config/config.json",
+        help="Path to JSON configuration file (default: config/config.json).",
     )
     parser.add_argument(
         "--mock",
@@ -83,7 +91,15 @@ def main() -> None:
     ensure_workspace_directories()
 
     if args.diagnostics:
-        results = run_full_system_diagnostics(Path(args.config) if args.config else None)
+        diag_path = Path(args.config) if args.config else None
+        if (
+            diag_path
+            and not diag_path.exists()
+            and diag_path.name == "config.json"
+            and (get_application_root() / "config" / "config.json").exists()
+        ):
+            diag_path = get_application_root() / "config" / "config.json"
+        results = run_full_system_diagnostics(diag_path)
         print(format_diagnostics_report(results))
         sys.exit(0 if results["overall_status"] != "FAIL" else 1)
 
@@ -95,6 +111,9 @@ def main() -> None:
         return
 
     config_path = Path(args.config)
+    if not config_path.exists():
+        if config_path.name == "config.json" and (get_application_root() / "config" / "config.json").exists():
+            config_path = get_application_root() / "config" / "config.json"
     config = load_config(config_path)
 
     if args.monitor:

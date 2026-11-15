@@ -113,10 +113,14 @@ def build_portable_distribution() -> Path:
         shutil.copy2(str(sample_src), str(portable_root / "sample_input.xlsx"))
         shutil.copy2(str(sample_src), str(portable_root / "input" / "sample_input.xlsx"))
 
-    cfg_src = project_root / "config.json"
+    cfg_src = project_root / "config" / "config.json"
+    if not cfg_src.exists():
+        cfg_src = project_root / "config.json"
     if cfg_src.exists():
-        shutil.copy2(str(cfg_src), str(portable_root / "config.json"))
+        (portable_root / "config").mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(cfg_src), str(portable_root / "config" / "config.json"))
+        # Provide root copy for legacy backward compatibility in portable bundle
+        shutil.copy2(str(cfg_src), str(portable_root / "config.json"))
 
     # Step 6: Create Windows batch launch scripts
     # None of these launchers call global python, py, or venv.

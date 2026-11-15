@@ -102,7 +102,7 @@
     "login_url": "http://127.0.0.1:8765/",
     "rejected_transactions_url": "http://127.0.0.1:8765/",
     "username": "demo@gnb.local",
-    "password": "GnbDemo@123",
+    "password": "",
     "timeout_ms": 30000,
     "retry_attempts": 3
   },

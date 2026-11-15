@@ -61,14 +61,19 @@ def resolve_app_path(relative_or_absolute: str | Path) -> Path:
 def get_default_config_path() -> Path:
     """Return the default configuration file path.
 
+    Prefers config/config.json as the authoritative configuration, with fallback
+    to root config.json for legacy backwards compatibility.
+
     Returns:
-        Path: Path to config.json located at the project root or config directory.
+        Path: Path to config.json located in config/ directory or project root.
     """
     app_root = get_application_root()
+    config_dir_cfg = app_root / "config" / "config.json"
+    if config_dir_cfg.exists():
+        return config_dir_cfg
     root_cfg = app_root / "config.json"
     if root_cfg.exists():
         return root_cfg
-    config_dir_cfg = app_root / "config" / "config.json"
     return config_dir_cfg
 
 
