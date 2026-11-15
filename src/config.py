@@ -59,22 +59,15 @@ def resolve_app_path(relative_or_absolute: str | Path) -> Path:
 
 
 def get_default_config_path() -> Path:
-    """Return the default configuration file path.
+    """Return the canonical configuration file path.
 
-    Prefers config/config.json as the authoritative configuration, with fallback
-    to root config.json for legacy backwards compatibility.
+    Canonical location: config/config.json relative to the application root.
 
     Returns:
-        Path: Path to config.json located in config/ directory or project root.
+        Path: Path to config/config.json.
     """
     app_root = get_application_root()
-    config_dir_cfg = app_root / "config" / "config.json"
-    if config_dir_cfg.exists():
-        return config_dir_cfg
-    root_cfg = app_root / "config.json"
-    if root_cfg.exists():
-        return root_cfg
-    return config_dir_cfg
+    return app_root / "config" / "config.json"
 
 
 def ensure_workspace_directories(base_dir: Path | None = None) -> Dict[str, Path]:
@@ -188,18 +181,3 @@ def save_config(config_data: Dict[str, Any], config_path: Path | None = None) ->
 
     with target_path.open("w", encoding="utf-8") as file_handle:
         json.dump(sanitized_data, file_handle, indent=2)
-
-    # If saving default root or config directory config, synchronize sibling canonical copy
-    app_root = get_application_root()
-    root_cfg = app_root / "config.json"
-    nested_cfg = app_root / "config" / "config.json"
-    if config_path is None:
-        try:
-            if target_path == root_cfg and nested_cfg.parent.exists():
-                with nested_cfg.open("w", encoding="utf-8") as fh:
-                    json.dump(sanitized_data, fh, indent=2)
-            elif target_path == nested_cfg and root_cfg.exists():
-                with root_cfg.open("w", encoding="utf-8") as fh:
-                    json.dump(sanitized_data, fh, indent=2)
-        except Exception:
-            pass

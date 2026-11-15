@@ -46,58 +46,51 @@ UBP-Bot/
    - Extracts rejected transactions directly into `output/GNB_Rejected_Transactions.xlsx`.
    - Complete browser session and context isolation from OTC.
 
-### Zero-Admin Portable Deployment
+### Portable Deployment Architecture
 
-- **Self-Contained Executable**: Bundled with embedded Python runtime via PyInstaller.
-- **No System Python Required**: Operates without Python in PATH or administrative privileges.
-- **Offline Chromium Binaries**: Uses application-controlled browser binaries in `browsers/`.
-- **IT Whitelisting Compliant**: Fully compatible with AppLocker, CrowdStrike Falcon, and Microsoft Edge channels.
-
-### Bank IT & Security Whitelisting
-
-If your workstation uses Microsoft AppLocker, CrowdStrike Falcon, or Windows Defender Application Control (WDAC):
-
-#### Option 1: Whitelist Application Directory (Recommended)
-- Path Rule: Allow execution from `<User_Dir>\UBP-Bot-Portable\*`
-- Publisher / Hash Rule: Whitelist `UBP-Bot.exe` and `browsers\chromium-*\chrome-win\chrome.exe`.
-
-#### Option 2: Use Pre-installed Microsoft Edge (Zero Custom Browser Binaries)
-If IT security prohibits running portable browser binaries, configure `config/config.json`:
-```json
-"browser": {
-  "headless": false,
-  "channel": "msedge"
-}
-```
-This instructs UBP Bot to use the official, IT-managed Microsoft Edge browser (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`).
-
-#### Option 3: Chrome DevTools Protocol (CDP) Remote Debugging
-If subprocess creation is completely disabled by corporate policy:
-1. Launch Edge/Chrome manually with: `msedge.exe --remote-debugging-port=9222`
-2. In `config/config.json`, set:
-```json
-"browser": {
-  "cdp_url": "http://localhost:9222"
-}
-```
+- **Standalone Executable**: Built with PyInstaller as a standalone executable bundle (`UBP-Bot.exe`).
+- **No System Python Required**: Operates using its bundled Python runtime without requiring Python in PATH.
+- **Offline Chromium Binaries**: Uses portable browser binaries packaged in `browsers/` or connects to system browsers.
+- **Flexible Browser Integration**:
+  - **Bundled Chromium (Default)**: Offline Chromium binaries located in `browsers/`.
+  - **System Microsoft Edge**: Set `"channel": "msedge"` in `config/config.json` to utilize the local IT-managed Edge browser.
+  - **Chrome DevTools Protocol (CDP)**: Set `"cdp_url": "http://localhost:9222"` in `config/config.json` to connect to an existing running browser instance.
 
 ---
 
 ## Launching UBP Bot
 
 ### Desktop Interface (Recommended)
-Double-click `run_ubp_bot.bat` or run:
+In the portable distribution, double-click `run_ubp_bot.bat`, or from source run:
 ```bash
 python main.py
 ```
 
 ### Pre-flight Diagnostics
-Double-click `verify_environment.bat` or run:
+In the portable distribution, double-click `verify_environment.bat`, or from source run:
 ```bash
 python main.py --diagnostics
 ```
+Pre-flight diagnostics verify directory write permissions, core library availability, browser runtime paths, and portal reachability.
 
-### Mock Portals for Offline Testing
-```bash
-python main.py --mock
-```
+### Command-Line Execution
+- **Process a Single Input Spreadsheet**:
+  ```bash
+  python main.py --cli --input tests/fixtures/sample_input.xlsx --output output
+  ```
+- **Continuous Input Directory Monitoring**:
+  ```bash
+  python main.py --monitor
+  ```
+- **Extract GNB System Rejections**:
+  ```bash
+  python main.py --gnb
+  ```
+- **Extract Both Systems Concurrently**:
+  ```bash
+  python main.py --all-systems
+  ```
+- **Run Local Mock Portal for Testing**:
+  ```bash
+  python main.py --mock
+  ```

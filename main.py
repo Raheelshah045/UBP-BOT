@@ -41,7 +41,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=str,
-        default="input/sample_input.xlsx",
+        default="tests/fixtures/sample_input.xlsx",
         help="Path to the input Excel or CSV file for single-file mode.",
     )
     parser.add_argument(

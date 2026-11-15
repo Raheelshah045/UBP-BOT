@@ -20,11 +20,10 @@ jobs:
           python-version: "3.10"
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install pinned dependencies from lockfile
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install bandit ruff
+          pip install -r requirements.lock
           python -m playwright install --with-deps chromium
 
       - name: Run Ruff Linting
@@ -38,3 +37,31 @@ jobs:
       - name: Run Pytest Test Suite
         run: |
           python -m pytest tests -v
+
+      - name: Build Portable Windows Package
+        run: |
+          python scripts/build_portable_package.py
+
+      - name: Validate Portable Package Structure
+        run: |
+          python -c "
+          from pathlib import Path
+
+          portable = Path('dist/UBP-Bot-Portable')
+          assert (portable / 'UBP-Bot.exe').is_file(), 'UBP-Bot.exe is missing'
+          assert (portable / 'config' / 'config.json').is_file(), 'Canonical config/config.json missing in bundle'
+          assert not (portable / 'config.json').exists(), 'Duplicate root config.json must NOT exist in bundle'
+          assert (portable / 'run_ubp_bot.bat').is_file(), 'run_ubp_bot.bat launcher is missing'
+          assert (portable / 'verify_environment.bat').is_file(), 'verify_environment.bat launcher is missing'
+
+          for d in ['input', 'output', 'logs', 'checkpoints', 'processing', 'completed', 'failed', 'config']:
+              assert (portable / d).is_dir(), f'Runtime directory {d} missing'
+
+          chrome_exes = list(portable.glob('browsers/chromium-*/chrome-win/chrome.exe'))
+          assert len(chrome_exes) > 0, 'Bundled portable Chromium binary is missing'
+          print('[✓] Portable Windows package structural validation PASSED!')
+          "
+
+      - name: Run Portable Executable Pre-Flight Diagnostics
+        run: |
+          .\dist\UBP-Bot-Portable\UBP-Bot.exe --diagnostics

@@ -107,31 +107,27 @@ def build_portable_distribution() -> Path:
         if not gitkeep.exists():
             gitkeep.touch()
 
-    # Step 5: Copy configuration and sample input files
-    sample_src = project_root / "input" / "sample_input.xlsx"
+    # Step 5: Copy canonical configuration and sample fixtures
+    sample_src = project_root / "tests" / "fixtures" / "sample_input.xlsx"
     if not sample_src.exists():
-        sample_src = project_root / "sample_input.xlsx"
+        sample_src = project_root / "input" / "sample_input.xlsx"
     if sample_src.exists():
-        shutil.copy2(str(sample_src), str(portable_root / "input" / "sample_input.xlsx"))
-        shutil.copy2(str(sample_src), str(portable_root / "sample_input.xlsx"))
+        (portable_root / "tests" / "fixtures").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(sample_src), str(portable_root / "tests" / "fixtures" / "sample_input.xlsx"))
 
     cfg_src = project_root / "config" / "config.json"
-    if not cfg_src.exists():
-        cfg_src = project_root / "config.json"
     if cfg_src.exists():
         (portable_root / "config").mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(cfg_src), str(portable_root / "config" / "config.json"))
-        # Provide root copy for legacy backward compatibility in portable bundle
-        shutil.copy2(str(cfg_src), str(portable_root / "config.json"))
 
     # Step 6: Create Windows batch launch scripts
     # None of these launchers call global python, py, or venv.
-    # They invoke OTC-BOT.exe directly using application-relative path %~dp0.
+    # They invoke UBP-Bot.exe directly using application-relative path %~dp0.
     # A) Main Launcher
-    bat_launcher = portable_root / "run_otc_bot.bat"
+    bat_launcher = portable_root / "run_ubp_bot.bat"
     bat_launcher.write_text(
         "@echo off\r\n"
-        "title OTC-BOT - Portable Non-Admin Deployment\r\n"
+        "title UBP Bot - Portable Non-Admin Deployment\r\n"
         "cd /d \"%~dp0\"\r\n"
         "set PLAYWRIGHT_BROWSERS_PATH=%~dp0browsers\r\n"
         "echo ============================================================\r\n"
