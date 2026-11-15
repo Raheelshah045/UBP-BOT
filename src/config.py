@@ -151,8 +151,26 @@ def load_config(config_path: Path | None = None) -> Dict[str, Any]:
     return data
 
 
+def _sanitize_config_for_storage(data: Any) -> Any:
+    """Recursively scrub passwords and secrets before writing configuration to disk."""
+    if isinstance(data, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, value in data.items():
+            key_lower = key.lower()
+            if any(s in key_lower for s in ("password", "secret", "token", "api_key")):
+                sanitized[key] = ""
+            elif isinstance(value, (dict, list)):
+                sanitized[key] = _sanitize_config_for_storage(value)
+            else:
+                sanitized[key] = value
+        return sanitized
+    elif isinstance(data, list):
+        return [_sanitize_config_for_storage(item) for item in data]
+    return data
+
+
 def save_config(config_data: Dict[str, Any], config_path: Path | None = None) -> None:
-    """Save configuration dictionary to a JSON file.
+    """Save configuration dictionary to a JSON file safely without storing secrets.
 
     Args:
         config_data: Configuration values to persist.
@@ -160,5 +178,23 @@ def save_config(config_data: Dict[str, Any], config_path: Path | None = None) ->
     """
     target_path = config_path if config_path is not None else get_default_config_path()
     target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sanitized_data = _sanitize_config_for_storage(config_data)
+
     with target_path.open("w", encoding="utf-8") as file_handle:
-        json.dump(config_data, file_handle, indent=2)
+        json.dump(sanitized_data, file_handle, indent=2)
+
+    # If saving default root or config directory config, synchronize sibling canonical copy
+    app_root = get_application_root()
+    root_cfg = app_root / "config.json"
+    nested_cfg = app_root / "config" / "config.json"
+    if config_path is None:
+        try:
+            if target_path == root_cfg and nested_cfg.parent.exists():
+                with nested_cfg.open("w", encoding="utf-8") as fh:
+                    json.dump(sanitized_data, fh, indent=2)
+            elif target_path == nested_cfg and root_cfg.exists():
+                with root_cfg.open("w", encoding="utf-8") as fh:
+                    json.dump(sanitized_data, fh, indent=2)
+        except Exception:
+            pass

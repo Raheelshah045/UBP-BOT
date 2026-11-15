@@ -79,7 +79,7 @@ def compute_batch_id(input_file_path: Path) -> str:
     Returns:
         str: Hexadecimal string identifying the batch.
     """
-    hasher = hashlib.md5()
+    hasher = hashlib.sha256()
     hasher.update(str(input_file_path.resolve()).encode("utf-8"))
     if input_file_path.exists():
         hasher.update(str(input_file_path.stat().st_mtime).encode("utf-8"))
@@ -293,11 +293,11 @@ def run_batch_automation(
                 "Search query timed out or failed to load results.",
             )
             processed_row_numbers.add(row_num)
-        if _check_cancellation():
-            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
-            if on_message:
-                on_message("[OTC] Automation stopped by user.")
-            break
+            if _check_cancellation():
+                log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+                if on_message:
+                    on_message("[OTC] Automation stopped by user.")
+                break
             continue
 
         extracted_txs = extract_all_transactions(page, selectors)
@@ -314,11 +314,11 @@ def run_batch_automation(
                 0,
             )
             processed_row_numbers.add(row_num)
-        if _check_cancellation():
-            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
-            if on_message:
-                on_message("[OTC] Automation stopped by user.")
-            break
+            if _check_cancellation():
+                log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+                if on_message:
+                    on_message("[OTC] Automation stopped by user.")
+                break
             continue
 
         classified_items: List[Dict[str, Any]] = []

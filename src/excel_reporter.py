@@ -51,6 +51,18 @@ GNB_HEADERS = [
 ]
 
 
+def sanitize_cell_value(val: Any) -> Any:
+    """Sanitize string values to prevent Excel formula injection (CSV/formula injection).
+
+    Prepends a single quote to any string starting with '=', '+', '-', '@', tab, or carriage return.
+    """
+    if isinstance(val, str) and val:
+        stripped = val.lstrip()
+        if stripped and stripped[0] in ("=", "+", "-", "@", "\t", "\r"):
+            return f"'{val}"
+    return val
+
+
 def apply_header_styling(worksheet: Any, num_columns: int, header_fill: PatternFill) -> None:
     """Apply professional header styling, freeze panes, and filters.
 
@@ -157,19 +169,22 @@ def generate_otc_rejected_report(
         row_count += 1
 
         sheet.append([
-            row_count,
-            t.get("row_number", ""),
-            c_num,
-            bank_val,
-            tx_date,
-            tx_time,
-            rrn_val,
-            auth_val,
-            amount_val,
-            status_val,
-            resp_code_val,
-            resp_desc_val,
-            cls_reason,
+            sanitize_cell_value(val)
+            for val in [
+                row_count,
+                t.get("row_number", ""),
+                c_num,
+                bank_val,
+                tx_date,
+                tx_time,
+                rrn_val,
+                auth_val,
+                amount_val,
+                status_val,
+                resp_code_val,
+                resp_desc_val,
+                cls_reason,
+            ]
         ])
 
     apply_header_styling(sheet, len(OTC_HEADERS), HEADER_FILL_OTC)
@@ -259,14 +274,17 @@ def generate_gnb_rejected_report(
         row_count += 1
 
         sheet.append([
-            row_count,
-            tx_id,
-            account_val,
-            tx_date,
-            tx_time,
-            amount_val,
-            status_val,
-            reason_val,
+            sanitize_cell_value(val)
+            for val in [
+                row_count,
+                tx_id,
+                account_val,
+                tx_date,
+                tx_time,
+                amount_val,
+                status_val,
+                reason_val,
+            ]
         ])
 
     apply_header_styling(sheet, len(GNB_HEADERS), HEADER_FILL_GNB)

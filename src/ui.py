@@ -12,6 +12,7 @@ import os
 import subprocess
 import threading
 import tkinter as tk
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from tkinter import ttk
@@ -43,10 +44,13 @@ def open_folder_in_explorer(folder_path: Path) -> None:
 def check_url_reachability(url: str, timeout_seconds: float = 3.0) -> bool:
     """Check if URL returns an HTTP response without hanging."""
     try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
         req = urllib.request.Request(
             url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UBP-Bot/2.0"}
         )
-        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:  # nosec B310
             return resp.status < 500
     except Exception:
         return False
@@ -406,6 +410,7 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     # Operational status tracking
     is_otc_running = False
     is_gnb_running = False
+    gnb_stop_event: Optional[threading.Event] = None
 
     def update_global_badge():
         if is_otc_running and is_gnb_running:
@@ -439,7 +444,7 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         def update_progress(data: Dict[str, Any]) -> None:
             tot = data.get("total_rows", 1)
             prc = data.get("processed_count", 0)
-            progress_bar.configure(maximum=tot, value=prc)
+            root.after(0, lambda: progress_bar.configure(maximum=tot, value=prc))
 
         def update_portal_state(state_str: str) -> None:
             root.after(0, lambda: otc_auth_var.set(state_str))
@@ -473,21 +478,24 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
 
     # GNB Handlers
     def start_gnb_worker() -> None:
-        nonlocal is_gnb_running
+        nonlocal is_gnb_running, gnb_stop_event
         if is_gnb_running:
             return
         is_gnb_running = True
+        gnb_stop_event = threading.Event()
         update_global_badge()
-        gnb_proc_var.set("Extracting")
-        gnb_task_badge.configure(bg="#D1FAE5", fg="#065F46")
-        btn_start_gnb.configure(state="disabled")
-        btn_stop_gnb.configure(state="normal")
+        root.after(0, lambda: [
+            gnb_proc_var.set("Extracting"),
+            gnb_task_badge.configure(bg="#D1FAE5", fg="#065F46"),
+            btn_start_gnb.configure(state="disabled"),
+            btn_stop_gnb.configure(state="normal"),
+        ])
 
         def worker():
             nonlocal is_gnb_running
             try:
                 append_log_line("[GNB] Launching independent GNB extraction pipeline...")
-                gnb_auth_var.set("Authenticating...")
+                root.after(0, lambda: gnb_auth_var.set("Authenticating..."))
                 in_dir = Path(config.get("directories", {}).get("input_dir", "input"))
                 gnb_candidates = [
                     f for f in in_dir.glob("*")
@@ -504,11 +512,17 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
                     input_file_path=gnb_file,
                     on_message=gnb_msg,
                     keep_browser_open=False,
+                    stop_event=gnb_stop_event,
                 )
-                gnb_auth_var.set("Authenticated")
+                if gnb_stop_event and gnb_stop_event.is_set():
+                    root.after(0, lambda: gnb_proc_var.set("Stopped"))
+                    append_log_line("[GNB] Extraction cancelled.")
+                    return
+
+                root.after(0, lambda: gnb_auth_var.set("Authenticated"))
                 out_p = Path(config.get("directories", {}).get("output_dir", "output"))
                 rep = generate_gnb_rejected_report(out_p, txs)
-                gnb_proc_var.set(f"Completed ({len(txs)})")
+                root.after(0, lambda: gnb_proc_var.set(f"Completed ({len(txs)})"))
                 append_log_line(f"[GNB] Report generated: {rep.name} ({len(txs)} rejections)")
 
                 if gnb_file and gnb_file.exists():
@@ -525,7 +539,7 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
                     append_log_line(f"[GNB] Completed and archived: {archived.name}")
 
             except Exception as exc:
-                gnb_proc_var.set("Error")
+                root.after(0, lambda: gnb_proc_var.set("Error"))
                 append_log_line(f"[GNB] Extraction failed: {exc}")
             finally:
                 is_gnb_running = False
@@ -538,12 +552,16 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         threading.Thread(target=worker, daemon=True).start()
 
     def stop_gnb_worker() -> None:
-        nonlocal is_gnb_running
+        nonlocal is_gnb_running, gnb_stop_event
+        if gnb_stop_event:
+            gnb_stop_event.set()
         is_gnb_running = False
         update_global_badge()
-        gnb_proc_var.set("Stopped")
-        btn_start_gnb.configure(state="normal")
-        btn_stop_gnb.configure(state="disabled")
+        root.after(0, lambda: [
+            gnb_proc_var.set("Stopped"),
+            btn_start_gnb.configure(state="normal"),
+            btn_stop_gnb.configure(state="disabled"),
+        ])
         try:
             from src.gnb_client import close_gnb_session
             close_gnb_session()

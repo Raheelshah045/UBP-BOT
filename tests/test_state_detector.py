@@ -1,6 +1,7 @@
 """Unit tests for portal screen and application state identification."""
 
 import threading
+
 from playwright.sync_api import sync_playwright
 
 from src.state_detector import (

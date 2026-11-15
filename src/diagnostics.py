@@ -206,7 +206,10 @@ def check_portal_connectivity(config: Dict[str, Any]) -> Dict[str, Any]:
     note: Optional[str] = None
 
     try:
-        req = urllib.request.urlopen(portal_url, timeout=3)
+        parsed = urllib.parse.urlparse(portal_url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Disallowed URL scheme: {parsed.scheme}")
+        req = urllib.request.urlopen(portal_url, timeout=3)  # nosec B310
         status_code = req.status
         reachable = True
         detail = f"Reachable (HTTP {status_code}) -> {portal_url}"

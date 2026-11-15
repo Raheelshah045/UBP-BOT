@@ -4,11 +4,22 @@ Provides masked logging, file handlers, and UI event hooks.
 """
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
 _UI_LOG_CALLBACK: Optional[Callable[[str], None]] = None
+
+_SENSITIVE_PATTERN = re.compile(
+    r"(password|secret|token|api[_-]?key)\s*[:=]\s*([^\s,;]+)",
+    re.IGNORECASE,
+)
+
+
+def mask_sensitive_text(text: str) -> str:
+    """Mask credentials, secrets, or tokens in text strings."""
+    return _SENSITIVE_PATTERN.sub(r"\1=***REDACTED***", text)
 
 
 def mask_consumer_number(consumer_number: str) -> str:
@@ -44,7 +55,7 @@ def emit_ui_log(message: str) -> None:
     """
     if _UI_LOG_CALLBACK is not None:
         try:
-            _UI_LOG_CALLBACK(message)
+            _UI_LOG_CALLBACK(mask_sensitive_text(message))
         except Exception:
             pass
 
@@ -108,6 +119,6 @@ def log_event(
         if consumer_number is not None
         else ""
     )
-    full_message = f"{row_part}{consumer_part}{message}"
+    full_message = mask_sensitive_text(f"{row_part}{consumer_part}{message}")
     logger.log(level, full_message)
     emit_ui_log(full_message)

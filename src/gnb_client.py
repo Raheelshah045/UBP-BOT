@@ -514,6 +514,7 @@ def _execute_gnb_in_thread(
     input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = False,
+    stop_event: Optional[threading.Event] = None,
 ) -> List[Dict[str, Any]]:
     """Internal execution function strictly owned by the GNB worker thread."""
     global _GNB_PW_INSTANCE, _GNB_CONTEXT, _GNB_PAGE
@@ -548,7 +549,7 @@ def _execute_gnb_in_thread(
         "slow_mo": browser_cfg.get("slow_mo_ms", 100),
         "args": ["--start-maximized"],
         "no_viewport": True,
-        "ignore_https_errors": True,
+        "ignore_https_errors": browser_cfg.get("ignore_https_errors", False),
     }
     if browser_cfg.get("channel"):
         launch_kwargs["channel"] = browser_cfg["channel"]
@@ -556,6 +557,9 @@ def _execute_gnb_in_thread(
         launch_kwargs["executable_path"] = str(resolve_app_path(browser_cfg["executable_path"]))
 
     try:
+        if stop_event and stop_event.is_set():
+            return []
+
         try:
             context = pw_inst.chromium.launch_persistent_context(**launch_kwargs)
         except Exception:
@@ -565,9 +569,15 @@ def _execute_gnb_in_thread(
         page = context.pages[0] if context.pages else context.new_page()
         _GNB_PAGE = page
 
+        if stop_event and stop_event.is_set():
+            return []
+
         auth_success = login_gnb_portal(page, gnb_cfg, selectors, on_message=on_message)
         if not auth_success:
             log_event(logger, 40, "[GNB] GNB authentication was not completed.")
+            return []
+
+        if stop_event and stop_event.is_set():
             return []
 
         transactions = extract_gnb_rejected_transactions(
@@ -616,12 +626,19 @@ def run_gnb_extraction_pipeline(
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = False,
     browser_page: Optional[Page] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> List[Dict[str, Any]]:
     """Execute GNB extraction safely in a dedicated worker thread to prevent thread-switching errors.
 
     Guarantees that only ONE GNB pipeline runs at any given time, preventing duplicate launches.
+    Supports cooperative cancellation via stop_event.
     """
     global _IS_GNB_RUNNING
+
+    if stop_event and stop_event.is_set():
+        if on_message:
+            on_message("[GNB] Run cancelled before start.")
+        return []
 
     with _GNB_LOCK:
         if _IS_GNB_RUNNING:
@@ -640,6 +657,7 @@ def run_gnb_extraction_pipeline(
                 input_file_path=input_file_path,
                 on_message=on_message,
                 keep_browser_open=keep_browser_open,
+                stop_event=stop_event,
             )
             result_container.append(res)
         except Exception as exc:
@@ -651,7 +669,10 @@ def run_gnb_extraction_pipeline(
 
     th = threading.Thread(target=thread_entry, name="GNBWorkerThread", daemon=True)
     th.start()
-    th.join()
+    while th.is_alive():
+        th.join(timeout=0.2)
+        if stop_event and stop_event.is_set():
+            break
 
     if error_container:
         raise error_container[0]

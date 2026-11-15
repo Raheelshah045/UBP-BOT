@@ -187,7 +187,7 @@ def launch_persistent_browser_session(
         "slow_mo": slow_mo,
         "args": ["--start-maximized"],
         "no_viewport": True,
-        "ignore_https_errors": True,
+        "ignore_https_errors": browser_config.get("ignore_https_errors", False),
     }
     if channel:
         launch_kwargs["channel"] = channel
