@@ -466,16 +466,16 @@ def execute_transaction_search(
     if not submitted:
         return False
 
+    # Wait for loading spinner to clear if it appeared
     try:
-        if page.locator(loading_sel).first.is_visible(timeout=200):
-            page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=timeout_ms)
-    except PlaywrightTimeoutError:
-        return False
+        spinner_loc = page.locator(loading_sel).first
+        if spinner_loc.is_visible(timeout=150):
+            spinner_loc.wait_for(state="hidden", timeout=min(timeout_ms, 15000))
     except Exception:
         pass
 
     start_time = time.time()
-    max_wait_seconds = max(1.0, min(timeout_ms / 1000.0, 10.0))
+    max_wait_seconds = max(2.0, min(timeout_ms / 1000.0, 15.0))
 
     while (time.time() - start_time) < max_wait_seconds:
         # State A: No records found alert is displayed
@@ -498,15 +498,17 @@ def execute_transaction_search(
         try:
             table_loc = page.locator(table_sel).first
             if table_loc.is_visible(timeout=100):
-                rows = page.locator(f"{table_sel} tbody tr, {table_sel} tr")
-                row_count = rows.count()
-                if row_count > 1:
-                    first_data_row = rows.nth(1).inner_text(timeout=100)
+                body_rows = page.locator(f"{table_sel} tbody tr")
+                if body_rows.count() > 0:
+                    first_data_row = body_rows.first.inner_text(timeout=200)
                     if prev_row_text is None or first_data_row != prev_row_text or clean_target_consumer in first_data_row:
                         return True
-                elif row_count == 1:
-                    if page.locator(no_rec_sel).first.is_visible(timeout=100):
-                        return True
+                else:
+                    all_rows = page.locator(f"{table_sel} tr")
+                    if all_rows.count() > 1:
+                        first_data_row = all_rows.nth(1).inner_text(timeout=200)
+                        if prev_row_text is None or first_data_row != prev_row_text or clean_target_consumer in first_data_row:
+                            return True
         except Exception:
             pass
 
