@@ -8,7 +8,6 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from playwright.sync_api import Locator, Page
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
 def resolve_bank_option_value(
@@ -435,9 +434,15 @@ def execute_transaction_search(
 
     prev_row_text = None
     try:
-        prev_rows = page.locator(f"{table_sel} tbody tr, {table_sel} tr")
-        if prev_rows.count() > 1:
-            prev_row_text = prev_rows.nth(1).inner_text(timeout=100)
+        table_loc = page.locator(table_sel).first
+        if table_loc.is_visible(timeout=100):
+            body_rows = page.locator(f"{table_sel} tbody tr")
+            if body_rows.count() > 0:
+                prev_row_text = body_rows.first.inner_text(timeout=100)
+            else:
+                all_rows = page.locator(f"{table_sel} tr")
+                if all_rows.count() > 1:
+                    prev_row_text = all_rows.nth(1).inner_text(timeout=100)
     except Exception:
         pass
 
