@@ -6,7 +6,7 @@ mapping, header inspection, value pattern inference, data-testid support, and pa
 
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from playwright.sync_api import Locator, Page
 
@@ -290,25 +290,78 @@ def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dic
     return results
 
 
+def find_next_page_locator(page: Page, selectors: Dict[str, Any]) -> Optional[Locator]:
+    """Find the next page button locator using configured and standard fallback selectors."""
+    configured_sel = selectors.get("results", {}).get("pagination_next")
+    candidate_selectors = [
+        s for s in [
+            configured_sel,
+            "#btn-page-next",
+            "[data-testid='btn-page-next']",
+            "#btnNextPage",
+            "#next-page",
+            "#nextPage",
+            ".pagination-next",
+            ".page-next",
+            "li.next a",
+            "li.next button",
+            "button[aria-label*='Next' i]",
+            "a[aria-label*='Next' i]",
+            "button:has-text('Next')",
+            "a:has-text('Next')",
+        ] if s
+    ]
+    for sel in candidate_selectors:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                return loc
+        except Exception:
+            continue
+    return None
+
+
 def has_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Check if pagination has an active, clickable Next button via fast JS check.
+    """Check if pagination has an active, clickable Next button.
 
-    Args:
-        page: Active Playwright page.
-        selectors: Portal selector configuration.
-
-    Returns:
-        bool: True if Next button exists and is not disabled.
+    Verifies the Next control is attached, visible, not disabled, and not on final page.
     """
     try:
-        has_next = page.evaluate("""() => {
-            const btn = document.querySelector("#btn-page-next, [data-testid='btn-page-next'], #btnNextPage, button:has-text('Next')");
-            if (!btn) return false;
-            if (btn.offsetParent === null) return false;
-            if (btn.disabled || btn.classList.contains("disabled") || btn.getAttribute("aria-disabled") === "true") return false;
-            return true;
-        }""")
-        return bool(has_next)
+        loc = find_next_page_locator(page, selectors)
+        if loc is None:
+            return False
+
+        if not loc.is_visible(timeout=200):
+            return False
+
+        if loc.is_disabled():
+            return False
+
+        # Additional DOM checks for class-based or aria-based disabling
+        handle = loc.element_handle()
+        if handle is None:
+            return False
+
+        is_disabled = page.evaluate("""(el) => {
+            if (!el) return true;
+            if (el.disabled) return true;
+            if (el.getAttribute('disabled') !== null) return true;
+            if (el.getAttribute('aria-disabled') === 'true') return true;
+            const cls = el.className || '';
+            if (typeof cls === 'string' && (
+                cls.includes('disabled') ||
+                cls.includes('opacity-50') ||
+                cls.includes('cursor-not-allowed')
+            )) {
+                return true;
+            }
+            const parent = el.closest('li');
+            if (parent && (parent.classList.contains('disabled') || parent.getAttribute('aria-disabled') === 'true')) {
+                return true;
+            }
+            return false;
+        }""", handle)
+        return not bool(is_disabled)
     except Exception:
         return False
 
@@ -323,44 +376,48 @@ def click_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
     Returns:
         bool: True if next page loaded successfully.
     """
-    next_selectors = [
-        "#btn-page-next",
-        "[data-testid='btn-page-next']",
-        selectors.get("results", {}).get("pagination_next", "#btnNextPage"),
-        "button:has-text('Next')",
-        "a:has-text('Next')",
-        "#btnNextPage",
-    ]
-    for sel in next_selectors:
+    try:
+        if not has_next_page(page, selectors):
+            return False
+
+        loc = find_next_page_locator(page, selectors)
+        if loc is None:
+            return False
+
+        loc.click(timeout=2000)
+
+        # Wait for any spinner to disappear
+        loading_sel = selectors.get("results", {}).get(
+            "loading_indicator", "#loading-spinner, #loading-indicator, #loadingSpinner, .spinner"
+        )
         try:
-            loc = page.locator(sel).first
-            if loc.is_visible(timeout=300) and not loc.is_disabled():
-                loc.click()
-                time.sleep(0.5)
-                # Wait for any spinner to disappear
-                loading_sel = selectors.get("results", {}).get(
-                    "loading_indicator", "#loading-spinner, #loading-indicator, #loadingSpinner, .spinner"
-                )
-                try:
-                    if page.locator(loading_sel).first.is_visible(timeout=300):
-                        page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=10000)
-                except Exception:
-                    pass
-                return True
+            if page.locator(loading_sel).first.is_visible(timeout=200):
+                page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=10000)
         except Exception:
-            continue
-    return False
+            pass
+
+        time.sleep(0.3)
+        return True
+    except Exception:
+        return False
 
 
 def extract_all_transactions(
-    page: Page, selectors: Dict[str, Any], max_pages: int = 50
+    page: Page,
+    selectors: Dict[str, Any],
+    max_pages: int = 50,
+    stop_check: Optional[Callable[[], bool]] = None,
 ) -> List[Dict[str, Any]]:
     """Traverse all pagination pages and extract complete transaction records.
+
+    Supports cooperative cancellation between pages and guarantees that all unique
+    records across all result pages are aggregated without loss.
 
     Args:
         page: Active Playwright page.
         selectors: Portal selector configuration.
         max_pages: Safeguard maximum pagination depth.
+        stop_check: Optional cancellation checker function.
 
     Returns:
         List[Dict[str, Any]]: Aggregated transactions across all result pages.
@@ -373,6 +430,9 @@ def extract_all_transactions(
     current_page = 1
 
     while current_page <= max_pages:
+        if stop_check and stop_check():
+            break
+
         page_records = extract_current_page_rows(page, selectors)
         if not page_records:
             break
@@ -390,7 +450,10 @@ def extract_all_transactions(
                 all_records.append(rec)
                 new_on_this_page += 1
 
-        if new_on_this_page == 0 or not has_next_page(page, selectors):
+        if stop_check and stop_check():
+            break
+
+        if not has_next_page(page, selectors):
             break
 
         if not click_next_page(page, selectors):

@@ -36,16 +36,20 @@ _IS_PAUSED: bool = False
 _IS_STOPPED: bool = False
 
 
-def _check_cancellation() -> bool:
-    """Check if either the batch stop flag or monitoring loop has been cancelled."""
+def _check_cancellation(custom_check: Optional[Callable[[], bool]] = None) -> bool:
+    """Check if the batch run has been cancelled via explicit stop signal.
+
+    Guarantees that direct batch execution, CLI, and standalone runs are NOT
+    mistakenly aborted simply because directory monitoring is inactive.
+    """
     if _IS_STOPPED:
         return True
-    try:
-        from src.queue_manager import is_monitoring_active
-
-        return not is_monitoring_active()
-    except Exception:
-        return False
+    if custom_check is not None:
+        try:
+            return bool(custom_check())
+        except Exception:
+            pass
+    return False
 
 
 def set_pause_state(paused: bool) -> None:
@@ -93,6 +97,7 @@ def run_batch_automation(
     on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
     on_message: Optional[Callable[[str], None]] = None,
     keep_browser_open: bool = True,
+    stop_check: Optional[Callable[[], bool]] = None,
 ) -> Optional[Path]:
     """Execute the end-to-end OTC transaction monitoring and extraction workflow.
 
@@ -103,6 +108,7 @@ def run_batch_automation(
         on_progress: Optional UI progress callback.
         on_message: Optional UI notification message callback.
         keep_browser_open: If True, leaves browser open after completion.
+        stop_check: Optional cancellation checker function.
 
     Returns:
         Optional[Path]: Path to generated Excel report upon completion, or None if stopped early.
@@ -175,7 +181,7 @@ def run_batch_automation(
                 on_message("Automation paused by user. Waiting to resume...")
             time.sleep(1.0)
 
-        if _check_cancellation():
+        if _check_cancellation(stop_check):
             log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
             if on_message:
                 on_message("[OTC] Automation stopped by user.")
@@ -223,11 +229,11 @@ def run_batch_automation(
                 err_msg,
             )
             processed_row_numbers.add(row_num)
-        if _check_cancellation():
-            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
-            if on_message:
-                on_message("[OTC] Automation stopped by user.")
-            break
+            if _check_cancellation(stop_check):
+                log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+                if on_message:
+                    on_message("[OTC] Automation stopped by user.")
+                break
             continue
 
         if check_is_session_expired(page, selectors):
@@ -257,6 +263,8 @@ def run_batch_automation(
             )
 
         for attempt in range(1, retry_limit + 1):
+            if _check_cancellation(stop_check):
+                break
             try:
                 search_success = execute_transaction_search(
                     page,
@@ -277,7 +285,8 @@ def run_batch_automation(
                     row_number=row_num,
                     consumer_number=consumer_num,
                 )
-                time.sleep(portal_cfg.get("retry_delay_seconds", 1))
+                if attempt < retry_limit and not _check_cancellation(stop_check):
+                    time.sleep(portal_cfg.get("retry_delay_seconds", 1))
 
         if not search_success:
             record_row_result(
@@ -293,14 +302,16 @@ def run_batch_automation(
                 "Search query timed out or failed to load results.",
             )
             processed_row_numbers.add(row_num)
-            if _check_cancellation():
+            if _check_cancellation(stop_check):
                 log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
                 if on_message:
                     on_message("[OTC] Automation stopped by user.")
                 break
             continue
 
-        extracted_txs = extract_all_transactions(page, selectors)
+        extracted_txs = extract_all_transactions(
+            page, selectors, stop_check=lambda: _check_cancellation(stop_check)
+        )
         if not extracted_txs:
             record_row_result(
                 db_path,
@@ -314,7 +325,7 @@ def run_batch_automation(
                 0,
             )
             processed_row_numbers.add(row_num)
-            if _check_cancellation():
+            if _check_cancellation(stop_check):
                 log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
                 if on_message:
                     on_message("[OTC] Automation stopped by user.")
@@ -360,7 +371,7 @@ def run_batch_automation(
             qualifying_rejection_count,
         )
         processed_row_numbers.add(row_num)
-        if _check_cancellation():
+        if _check_cancellation(stop_check):
             log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
             if on_message:
                 on_message("[OTC] Automation stopped by user.")
@@ -375,6 +386,10 @@ def run_batch_automation(
 
     if not keep_browser_open:
         close_browser_session()
+
+    if _check_cancellation(stop_check):
+        log_event(logger, 30, "[OTC] Batch stopped prior to final report generation.")
+        return None
 
     target_out_dir = output_dir or Path(storage_cfg.get("output_dir", "output"))
     summary = get_batch_summary(db_path, batch_id)

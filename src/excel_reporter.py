@@ -5,6 +5,7 @@ Generates two independent banking-grade Excel outputs:
 2. GNB_Rejected_Transactions.xlsx
 """
 
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -54,13 +55,40 @@ GNB_HEADERS = [
 def sanitize_cell_value(val: Any) -> Any:
     """Sanitize string values to prevent Excel formula injection (CSV/formula injection).
 
-    Prepends a single quote to any string starting with '=', '+', '-', '@', tab, or carriage return.
+    Prepends a single quote to any string starting with '=', '+', '-', '@', tab, carriage return,
+    or with leading whitespace preceding any of these characters.
     """
     if isinstance(val, str) and val:
         stripped = val.lstrip()
         if stripped and stripped[0] in ("=", "+", "-", "@", "\t", "\r"):
             return f"'{val}"
     return val
+
+
+def save_workbook_safely(workbook: openpyxl.Workbook, target_path: Path) -> Path:
+    """Safely save workbook with atomic replacement and backup of existing report."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists():
+        backup_path = target_path.with_name(f"{target_path.stem}_prev{target_path.suffix}")
+        try:
+            shutil.copy2(str(target_path), str(backup_path))
+        except Exception:
+            pass
+
+    temp_path = target_path.with_name(f".tmp_{target_path.name}")
+    try:
+        workbook.save(temp_path)
+        if target_path.exists():
+            target_path.unlink()
+        temp_path.rename(target_path)
+    except Exception:
+        workbook.save(target_path)
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return target_path
 
 
 def apply_header_styling(worksheet: Any, num_columns: int, header_fill: PatternFill) -> None:
@@ -205,8 +233,7 @@ def generate_otc_rejected_report(
                 cell.font = REJECT_STATUS_FONT
 
     autofit_columns(sheet)
-    workbook.save(report_path)
-    return report_path
+    return save_workbook_safely(workbook, report_path)
 
 
 def generate_excel_report(
@@ -304,6 +331,5 @@ def generate_gnb_rejected_report(
                 cell.font = REJECT_STATUS_FONT
 
     autofit_columns(sheet)
-    workbook.save(report_path)
-    return report_path
+    return save_workbook_safely(workbook, report_path)
 

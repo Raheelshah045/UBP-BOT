@@ -23,7 +23,6 @@ Verifies all 20 non-negotiable scenarios required for UAT code review:
 20. Independent report generation with banking-grade styling.
 """
 
-import hashlib
 import json
 import threading
 from pathlib import Path
@@ -50,7 +49,13 @@ from src.excel_reporter import (
 from src.file_detector import is_file_locked_or_changing, move_file_safely
 from src.gnb_client import run_gnb_extraction_pipeline
 from src.input_processor import process_input_file
-from src.logger import get_logger, log_event, mask_consumer_number, mask_sensitive_text, set_ui_log_callback
+from src.logger import (
+    get_logger,
+    log_event,
+    mask_consumer_number,
+    mask_sensitive_text,
+    set_ui_log_callback,
+)
 from src.runner import compute_batch_id, is_stopped, set_stop_state
 from src.ui import check_url_reachability
 
@@ -136,7 +141,6 @@ def test_sensitive_data_and_credential_masking():
 
 # 4. TLS verification defaults
 def test_tls_verification_defaults():
-    from src.browser_manager import launch_persistent_browser_session
     # Default config without ignore_https_errors must default to False
     cfg: Dict[str, Any] = {"browser": {}}
     assert cfg.get("browser", {}).get("ignore_https_errors", False) is False
@@ -328,8 +332,8 @@ def test_thread_safe_log_dispatch():
     set_ui_log_callback(logs_received.append)
     logger = get_logger("test_ui_logger")
     log_event(logger, 20, "Test log message with password=my_secret")
-    assert any("Test log message" in l for l in logs_received)
-    assert not any("my_secret" in l for l in logs_received)
+    assert any("Test log message" in line for line in logs_received)
+    assert not any("my_secret" in line for line in logs_received)
     set_ui_log_callback(None)
 
 

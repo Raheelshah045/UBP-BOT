@@ -270,6 +270,7 @@ def process_single_queued_file(
                 on_progress=on_progress,
                 on_message=on_message,
                 keep_browser_open=True,
+                stop_check=lambda: not is_monitoring_active(),
             )
 
         if report_path and report_path.exists():

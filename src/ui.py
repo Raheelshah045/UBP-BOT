@@ -552,22 +552,14 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         threading.Thread(target=worker, daemon=True).start()
 
     def stop_gnb_worker() -> None:
-        nonlocal is_gnb_running, gnb_stop_event
+        nonlocal gnb_stop_event
         if gnb_stop_event:
             gnb_stop_event.set()
-        is_gnb_running = False
-        update_global_badge()
         root.after(0, lambda: [
-            gnb_proc_var.set("Stopped"),
-            btn_start_gnb.configure(state="normal"),
+            gnb_proc_var.set("Stopping..."),
             btn_stop_gnb.configure(state="disabled"),
         ])
-        try:
-            from src.gnb_client import close_gnb_session
-            close_gnb_session()
-        except Exception:
-            pass
-        append_log_line("[GNB] Extraction stopped by user.")
+        append_log_line("[GNB] Stop requested. Waiting for clean worker shutdown...")
 
     def run_both_systems() -> None:
         append_log_line("[*] Launching BOTH systems concurrently in isolated pipelines...")

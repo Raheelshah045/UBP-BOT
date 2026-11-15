@@ -81,10 +81,14 @@ def login_gnb_portal(
     gnb_config: Dict[str, Any],
     selectors: Dict[str, Any],
     on_message: Optional[Callable[[str], None]] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> bool:
     """Navigate to GNB login page and authenticate if credentials are provided."""
     logger = get_logger("gnb_client")
     login_url = gnb_config.get("login_url", "http://127.0.0.1:8080/")
+
+    if stop_event and stop_event.is_set():
+        return False
 
     if on_message:
         on_message(f"[GNB] Connecting to GNB System at {login_url}...")
@@ -136,11 +140,15 @@ def login_gnb_portal(
 
     start_time = time.time()
     while time.time() - start_time < 300:
+        if stop_event and stop_event.is_set():
+            if on_message:
+                on_message("[GNB] Login wait cancelled by user.")
+            return False
         if is_gnb_authenticated(page, selectors):
             if on_message:
                 on_message("GNB authentication detected successfully.")
             return True
-        time.sleep(1.0)
+        time.sleep(0.5)
 
     return False
 
@@ -319,20 +327,15 @@ def search_gnb_by_transaction_ids(
     page: Page,
     tx_ids: List[str],
     on_message: Optional[Callable[[str], None]] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> List[Dict[str, Any]]:
-    """Search GNB portal with high-speed batch resolution and sequential fallback.
-
-    Args:
-        page: Active Playwright page.
-        tx_ids: List of transaction ID strings.
-        on_message: Optional UI message callback.
-
-    Returns:
-        List[Dict[str, Any]]: Extracted rejected transactions.
-    """
+    """Search GNB portal with high-speed batch resolution and sequential fallback."""
     extracted: List[Dict[str, Any]] = []
     total = len(tx_ids)
     remaining_ids = set(str(x).strip() for x in tx_ids if str(x).strip())
+
+    if stop_event and stop_event.is_set():
+        return []
 
     # Fast batch query optimization across full table if portal supports date search
     try:
@@ -351,6 +354,8 @@ def search_gnb_by_transaction_ids(
             batch_rejections = {str(r.get("transaction_id", "")).strip(): r for r in batch_rows}
 
             for idx, tx_id in enumerate(tx_ids, 1):
+                if stop_event and stop_event.is_set():
+                    break
                 clean_id = str(tx_id).strip()
                 if clean_id in batch_rejections:
                     extracted.append(batch_rejections[clean_id])
@@ -376,6 +381,10 @@ def search_gnb_by_transaction_ids(
         pass
 
     for idx, tx_id in enumerate(tx_ids, 1):
+        if stop_event and stop_event.is_set():
+            if on_message:
+                on_message("[GNB] Sequential search stopped by user.")
+            break
         clean_id = str(tx_id).strip()
         if not clean_id or clean_id not in remaining_ids:
             continue
@@ -467,21 +476,18 @@ def extract_gnb_rejected_transactions(
     selectors: Dict[str, Any],
     input_file_path: Optional[Path] = None,
     on_message: Optional[Callable[[str], None]] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> List[Dict[str, Any]]:
-    """Navigate to GNB rejected transactions page and extract all qualifying records.
-
-    Args:
-        page: Active Playwright page.
-        gnb_config: GNB configuration dictionary.
-        selectors: GNB selector mappings.
-        input_file_path: Optional input spreadsheet with Transaction IDs.
-        on_message: Optional UI callback for log events.
-
-    Returns:
-        List[Dict[str, Any]]: List of extracted rejected transactions.
-    """
+    """Navigate to GNB rejected transactions page and extract all qualifying records."""
     logger = get_logger("gnb_client")
+
+    if stop_event and stop_event.is_set():
+        return []
+
     navigate_to_gnb_destination(page, gnb_config, on_message=on_message)
+
+    if stop_event and stop_event.is_set():
+        return []
 
     tx_ids: List[str] = []
     if input_file_path and Path(input_file_path).exists():
@@ -497,7 +503,7 @@ def extract_gnb_rejected_transactions(
         has_search = False
 
     if has_search and tx_ids:
-        extracted = search_gnb_by_transaction_ids(page, tx_ids, on_message=on_message)
+        extracted = search_gnb_by_transaction_ids(page, tx_ids, on_message=on_message, stop_event=stop_event)
     elif has_search:
         extracted = search_gnb_general_date_range(page, on_message=on_message)
     else:
@@ -572,7 +578,9 @@ def _execute_gnb_in_thread(
         if stop_event and stop_event.is_set():
             return []
 
-        auth_success = login_gnb_portal(page, gnb_cfg, selectors, on_message=on_message)
+        auth_success = login_gnb_portal(
+            page, gnb_cfg, selectors, on_message=on_message, stop_event=stop_event
+        )
         if not auth_success:
             log_event(logger, 40, "[GNB] GNB authentication was not completed.")
             return []
@@ -586,6 +594,7 @@ def _execute_gnb_in_thread(
             selectors,
             input_file_path=input_file_path,
             on_message=on_message,
+            stop_event=stop_event,
         )
         return transactions
 
@@ -669,10 +678,7 @@ def run_gnb_extraction_pipeline(
 
     th = threading.Thread(target=thread_entry, name="GNBWorkerThread", daemon=True)
     th.start()
-    while th.is_alive():
-        th.join(timeout=0.2)
-        if stop_event and stop_event.is_set():
-            break
+    th.join()
 
     if error_container:
         raise error_container[0]

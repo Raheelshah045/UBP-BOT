@@ -4,6 +4,7 @@ Fills search fields dynamically by reading screen inputs, executes query via ENT
 and detects search completion states with multi-layer adaptive fallbacks for layout variations.
 """
 
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from playwright.sync_api import Locator, Page
@@ -395,7 +396,13 @@ def execute_transaction_search(
     bank_mapping: Dict[str, str],
     timeout_ms: int = 15000,
 ) -> bool:
-    """Execute transaction search with optimized latency and instant response detection.
+    """Execute transaction search with reliable submission and fresh result state validation.
+
+    Guarantees:
+    - Confirms the search action was submitted.
+    - Distinguishes fresh results from stale previously displayed results.
+    - Accurately detects genuine no-record responses.
+    - Treats timeouts and failures strictly as unsuccessful (returns False, never True on timeout).
 
     Args:
         page: Active Playwright page.
@@ -407,44 +414,102 @@ def execute_transaction_search(
         timeout_ms: Maximum wait time for query completion.
 
     Returns:
-        bool: True if search completed and table or no-record notification is visible.
+        bool: True if search successfully completed and fresh table or no-record notification is visible.
     """
     fill_search_fields(page, selectors, bank_name, consumer_number, search_date, bank_mapping)
 
+    clean_target_consumer = str(consumer_number).strip()
+    results_sel = selectors.get("results", {})
+    no_rec_sel = results_sel.get(
+        "no_record_message",
+        "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']",
+    )
+    table_sel = results_sel.get(
+        "table",
+        "#transactions-table, #transactionsTable, [data-testid='transactions-table'], table",
+    )
+    loading_sel = results_sel.get(
+        "loading_indicator",
+        "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
+    )
+
+    prev_row_text = None
+    try:
+        prev_rows = page.locator(f"{table_sel} tbody tr, {table_sel} tr")
+        if prev_rows.count() > 1:
+            prev_row_text = prev_rows.nth(1).inner_text(timeout=100)
+    except Exception:
+        pass
+
+    submitted = False
     configured_btn_sel = selectors.get("search", {}).get("search_button", "#btnSearch")
     search_btn = find_search_button_locator(page, configured_btn_sel)
     if search_btn:
         try:
-            search_btn.click()
+            search_btn.click(timeout=2000)
+            submitted = True
         except Exception:
             pass
-    else:
-        consumer_sel = selectors.get("search", {}).get("consumer_input", "#consumer-number-input, #consumerNumberInput")
+
+    if not submitted:
+        consumer_sel = selectors.get("search", {}).get(
+            "consumer_input", "#consumer-number-input, #consumerNumberInput"
+        )
         consumer_field = find_consumer_input_locator(page, consumer_sel)
         if consumer_field:
             try:
-                consumer_field.press("Enter")
+                consumer_field.press("Enter", timeout=2000)
+                submitted = True
             except Exception:
                 pass
 
-    loading_sel = selectors.get("results", {}).get(
-        "loading_indicator",
-        "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
-    )
-    # Wait briefly for loading spinner to dismiss if present
+    if not submitted:
+        return False
+
     try:
-        if page.locator(loading_sel).first.is_visible(timeout=150):
+        if page.locator(loading_sel).first.is_visible(timeout=200):
             page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=timeout_ms)
     except PlaywrightTimeoutError:
+        return False
+    except Exception:
         pass
 
-    # Wait for results table or no record message
-    table_candidates = (
-        "#transactions-table, #transactionsTable, [data-testid='transactions-table'], table, "
-        "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']"
-    )
-    try:
-        page.wait_for_selector(table_candidates, timeout=min(timeout_ms, 3000))
-        return True
-    except PlaywrightTimeoutError:
-        return True
+    start_time = time.time()
+    max_wait_seconds = max(1.0, min(timeout_ms / 1000.0, 10.0))
+
+    while (time.time() - start_time) < max_wait_seconds:
+        # State A: No records found alert is displayed
+        try:
+            no_rec_loc = page.locator(no_rec_sel).first
+            if no_rec_loc.is_visible(timeout=100):
+                return True
+        except Exception:
+            pass
+
+        # State B: Portal error alert is displayed
+        try:
+            err_loc = page.locator("#error-message, .alert-danger, [role='alert'].error").first
+            if err_loc.is_visible(timeout=50):
+                return False
+        except Exception:
+            pass
+
+        # State C: Table with data rows is displayed
+        try:
+            table_loc = page.locator(table_sel).first
+            if table_loc.is_visible(timeout=100):
+                rows = page.locator(f"{table_sel} tbody tr, {table_sel} tr")
+                row_count = rows.count()
+                if row_count > 1:
+                    first_data_row = rows.nth(1).inner_text(timeout=100)
+                    if prev_row_text is None or first_data_row != prev_row_text or clean_target_consumer in first_data_row:
+                        return True
+                elif row_count == 1:
+                    if page.locator(no_rec_sel).first.is_visible(timeout=100):
+                        return True
+        except Exception:
+            pass
+
+        time.sleep(0.1)
+
+    return False
