@@ -53,6 +53,34 @@ UBP-Bot/
 - **Offline Chromium Binaries**: Uses application-controlled browser binaries in `browsers/`.
 - **IT Whitelisting Compliant**: Fully compatible with AppLocker, CrowdStrike Falcon, and Microsoft Edge channels.
 
+### Bank IT & Security Whitelisting
+
+If your workstation uses Microsoft AppLocker, CrowdStrike Falcon, or Windows Defender Application Control (WDAC):
+
+#### Option 1: Whitelist Application Directory (Recommended)
+- Path Rule: Allow execution from `<User_Dir>\UBP-Bot-Portable\*`
+- Publisher / Hash Rule: Whitelist `UBP-Bot.exe` and `browsers\chromium-*\chrome-win\chrome.exe`.
+
+#### Option 2: Use Pre-installed Microsoft Edge (Zero Custom Browser Binaries)
+If IT security prohibits running portable browser binaries, configure `config/config.json`:
+```json
+"browser": {
+  "headless": false,
+  "channel": "msedge"
+}
+```
+This instructs UBP Bot to use the official, IT-managed Microsoft Edge browser (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`).
+
+#### Option 3: Chrome DevTools Protocol (CDP) Remote Debugging
+If subprocess creation is completely disabled by corporate policy:
+1. Launch Edge/Chrome manually with: `msedge.exe --remote-debugging-port=9222`
+2. In `config/config.json`, set:
+```json
+"browser": {
+  "cdp_url": "http://localhost:9222"
+}
+```
+
 ---
 
 ## Launching UBP Bot

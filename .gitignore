@@ -49,6 +49,8 @@ checkpoints/*.sqlite
 *.sqlite3
 *.db
 *.db-journal
+Database_Records_Export.xlsx
+*_Export.xlsx
 data/
 
 # Log Files
@@ -58,6 +60,7 @@ logs/*.log
 # Runtime Operational Folders (preserve directory structure via .gitkeep)
 input/*
 !input/.gitkeep
+!input/sample_input.xlsx
 processing/*
 !processing/.gitkeep
 completed/*
