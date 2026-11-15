@@ -88,8 +88,19 @@ def verify_browser_runtime_available(browser_config: Dict[str, Any]) -> Tuple[bo
             if chrome_exe.exists():
                 return True, str(chrome_exe)
 
+    try:
+        pw_probe = sync_playwright().start()
+        try:
+            exe = Path(pw_probe.chromium.executable_path)
+            if exe.exists():
+                return True, str(exe)
+        finally:
+            pw_probe.stop()
+    except Exception:
+        pass
+
     expected = browsers_dir / "chromium-<version>" / "chrome-win" / "chrome.exe"
-    return False, f"Missing bundled Chromium runtime at: {expected}"
+    return False, f"Missing bundled Chromium runtime at: {expected}. Run 'playwright install chromium' to download."
 
 
 def launch_persistent_browser_session(
