@@ -36,6 +36,18 @@ _IS_PAUSED: bool = False
 _IS_STOPPED: bool = False
 
 
+def _check_cancellation() -> bool:
+    """Check if either the batch stop flag or monitoring loop has been cancelled."""
+    if _IS_STOPPED:
+        return True
+    try:
+        from src.queue_manager import is_monitoring_active
+
+        return not is_monitoring_active()
+    except Exception:
+        return False
+
+
 def set_pause_state(paused: bool) -> None:
     """Set pause state for the running automation batch."""
     global _IS_PAUSED
@@ -163,8 +175,10 @@ def run_batch_automation(
                 on_message("Automation paused by user. Waiting to resume...")
             time.sleep(1.0)
 
-        if _IS_STOPPED:
-            log_event(logger, 30, "Automation stopped by user. Checkpoint preserved.")
+        if _check_cancellation():
+            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+            if on_message:
+                on_message("[OTC] Automation stopped by user.")
             break
 
         row_num = record["row_number"]
@@ -209,6 +223,11 @@ def run_batch_automation(
                 err_msg,
             )
             processed_row_numbers.add(row_num)
+        if _check_cancellation():
+            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+            if on_message:
+                on_message("[OTC] Automation stopped by user.")
+            break
             continue
 
         if check_is_session_expired(page, selectors):
@@ -274,6 +293,11 @@ def run_batch_automation(
                 "Search query timed out or failed to load results.",
             )
             processed_row_numbers.add(row_num)
+        if _check_cancellation():
+            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+            if on_message:
+                on_message("[OTC] Automation stopped by user.")
+            break
             continue
 
         extracted_txs = extract_all_transactions(page, selectors)
@@ -290,6 +314,11 @@ def run_batch_automation(
                 0,
             )
             processed_row_numbers.add(row_num)
+        if _check_cancellation():
+            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+            if on_message:
+                on_message("[OTC] Automation stopped by user.")
+            break
             continue
 
         classified_items: List[Dict[str, Any]] = []
@@ -331,6 +360,11 @@ def run_batch_automation(
             qualifying_rejection_count,
         )
         processed_row_numbers.add(row_num)
+        if _check_cancellation():
+            log_event(logger, 30, "[OTC] Automation stopped by user. Checkpoint preserved.")
+            if on_message:
+                on_message("[OTC] Automation stopped by user.")
+            break
         log_event(
             logger,
             20,

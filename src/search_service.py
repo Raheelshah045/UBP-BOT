@@ -223,7 +223,7 @@ def find_consumer_input_locator(page: Page, configured_selector: str) -> Optiona
 
 
 def find_date_inputs(page: Page) -> Tuple[Optional[Locator], Optional[Locator]]:
-    """Locate From Date and To Date inputs adaptively regardless of layout or attribute names.
+    """Locate From Date and To Date inputs adaptively with fast locator caching.
 
     Args:
         page: Active Playwright page.
@@ -231,11 +231,23 @@ def find_date_inputs(page: Page) -> Tuple[Optional[Locator], Optional[Locator]]:
     Returns:
         Tuple[Optional[Locator], Optional[Locator]]: (from_date_locator, to_date_locator).
     """
+    if "from_date" in _LOCATOR_CACHE and "to_date" in _LOCATOR_CACHE:
+        try:
+            cached_from = page.locator(_LOCATOR_CACHE["from_date"]).first
+            cached_to = page.locator(_LOCATOR_CACHE["to_date"]).first
+            if cached_from.is_visible(timeout=50) and cached_to.is_visible(timeout=50):
+                return cached_from, cached_to
+        except Exception:
+            _LOCATOR_CACHE.pop("from_date", None)
+            _LOCATOR_CACHE.pop("to_date", None)
+
     # 1. Standard IDs
     from_loc = page.locator("#from-date-input, [data-testid='from-date-input'], #fromDateInput, #fromDate").first
     to_loc = page.locator("#to-date-input, [data-testid='to-date-input'], #toDateInput, #toDate").first
 
-    if from_loc.is_visible(timeout=200) and to_loc.is_visible(timeout=200):
+    if from_loc.is_visible(timeout=100) and to_loc.is_visible(timeout=100):
+        _LOCATOR_CACHE["from_date"] = "#from-date-input, [data-testid='from-date-input'], #fromDateInput, #fromDate"
+        _LOCATOR_CACHE["to_date"] = "#to-date-input, [data-testid='to-date-input'], #toDateInput, #toDate"
         return from_loc, to_loc
 
     # 2. Native date inputs
@@ -249,21 +261,61 @@ def find_date_inputs(page: Page) -> Tuple[Optional[Locator], Optional[Locator]]:
     found_from = None
     found_to = None
 
-    if from_lbl.is_visible(timeout=200):
+    if from_lbl.is_visible(timeout=100):
         found_from = from_lbl.locator("..").locator("input:visible").first
-    if to_lbl.is_visible(timeout=200):
+    if to_lbl.is_visible(timeout=100):
         found_to = to_lbl.locator("..").locator("input:visible").first
 
-    if found_from and found_to and found_from.is_visible(timeout=200) and found_to.is_visible(timeout=200):
+    if found_from and found_to and found_from.is_visible(timeout=100) and found_to.is_visible(timeout=100):
         return found_from, found_to
 
     # 4. Attribute heuristics (name/id/placeholder)
     from_attr = page.locator("input[name*='from' i]:visible, input[placeholder*='from' i]:visible").first
     to_attr = page.locator("input[name*='to' i]:visible, input[placeholder*='to' i]:visible").first
-    if from_attr.is_visible(timeout=200) and to_attr.is_visible(timeout=200):
+    if from_attr.is_visible(timeout=100) and to_attr.is_visible(timeout=100):
         return from_attr, to_attr
 
     return None, None
+
+
+def find_search_button_locator(page: Page, configured_selector: str) -> Optional[Locator]:
+    """Locate search submit button with fast locator caching.
+
+    Args:
+        page: Active Playwright page.
+        configured_selector: Configured CSS selector.
+
+    Returns:
+        Optional[Locator]: Found button locator, or None.
+    """
+    if "search_btn" in _LOCATOR_CACHE:
+        try:
+            cached = page.locator(_LOCATOR_CACHE["search_btn"]).first
+            if cached.is_visible(timeout=50):
+                return cached
+        except Exception:
+            _LOCATOR_CACHE.pop("search_btn", None)
+
+    candidates = [
+        "#btn-search-bill-status",
+        "[data-testid='btn-search-bill-status']",
+        configured_selector,
+        "button:has-text('Bill Status')",
+        "button:has-text('Search')",
+        "#btnSearch",
+        "button[type='submit']",
+    ]
+    for sel in candidates:
+        if not sel:
+            continue
+        try:
+            loc = page.locator(sel).first
+            if loc.is_visible(timeout=100):
+                _LOCATOR_CACHE["search_btn"] = sel
+                return loc
+        except Exception:
+            continue
+    return None
 
 
 def select_bank(
@@ -359,58 +411,29 @@ def execute_transaction_search(
     """
     fill_search_fields(page, selectors, bank_name, consumer_number, search_date, bank_mapping)
 
-    consumer_sel = selectors.get("search", {}).get("consumer_input", "#consumer-number-input, #consumerNumberInput")
-    consumer_field = find_consumer_input_locator(page, consumer_sel)
-    if consumer_field:
+    configured_btn_sel = selectors.get("search", {}).get("search_button", "#btnSearch")
+    search_btn = find_search_button_locator(page, configured_btn_sel)
+    if search_btn:
         try:
-            consumer_field.press("Enter")
+            search_btn.click()
         except Exception:
             pass
+    else:
+        consumer_sel = selectors.get("search", {}).get("consumer_input", "#consumer-number-input, #consumerNumberInput")
+        consumer_field = find_consumer_input_locator(page, consumer_sel)
+        if consumer_field:
+            try:
+                consumer_field.press("Enter")
+            except Exception:
+                pass
 
     loading_sel = selectors.get("results", {}).get(
         "loading_indicator",
         "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
     )
-    results_sel = selectors.get("results", {}).get(
-        "rows", "#transactions-table tbody tr, table tbody tr"
-    )
-    no_rec_sel = selectors.get("results", {}).get(
-        "no_record_message", "#no-records-message, #noRecordsAlert"
-    )
-
-    # Fast detection: if Enter already initiated query or displayed results, avoid button search
-    already_active = False
+    # Wait briefly for loading spinner to dismiss if present
     try:
-        already_active = (
-            page.locator(loading_sel).first.is_visible(timeout=80)
-            or page.locator(results_sel).first.is_visible(timeout=80)
-            or page.locator(no_rec_sel).first.is_visible(timeout=80)
-        )
-    except Exception:
-        already_active = False
-
-    if not already_active:
-        search_btn_selectors = [
-            "#btn-search-bill-status",
-            "[data-testid='btn-search-bill-status']",
-            selectors.get("search", {}).get("search_button", "#btnSearch"),
-            "button:has-text('Bill Status')",
-            "button:has-text('Search')",
-            "button[type='submit']",
-            "#btnSearch",
-        ]
-        for btn_sel in search_btn_selectors:
-            try:
-                loc = page.locator(btn_sel).first
-                if loc.is_visible(timeout=100):
-                    loc.click()
-                    break
-            except Exception:
-                continue
-
-    # Wait for loading spinner to dismiss
-    try:
-        if page.locator(loading_sel).first.is_visible(timeout=300):
+        if page.locator(loading_sel).first.is_visible(timeout=150):
             page.wait_for_selector(f"{loading_sel}:not(:visible)", timeout=timeout_ms)
     except PlaywrightTimeoutError:
         pass
@@ -421,7 +444,7 @@ def execute_transaction_search(
         "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']"
     )
     try:
-        page.wait_for_selector(table_candidates, timeout=timeout_ms)
+        page.wait_for_selector(table_candidates, timeout=min(timeout_ms, 3000))
         return True
     except PlaywrightTimeoutError:
         return True

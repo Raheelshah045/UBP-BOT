@@ -429,6 +429,9 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
         btn_start_otc.configure(state="disabled")
         btn_stop_otc.configure(state="normal")
         set_monitoring_state(True)
+        from src.runner import set_stop_state
+
+        set_stop_state(False)
 
         def update_queue(q_count: int, cur_file: str = "") -> None:
             pass
@@ -457,6 +460,9 @@ def create_desktop_app(config_path: Optional[Path] = None) -> tk.Tk:
     def stop_otc_worker() -> None:
         nonlocal is_otc_running
         set_monitoring_state(False)
+        from src.runner import set_stop_state
+
+        set_stop_state(True)
         is_otc_running = False
         update_global_badge()
         otc_proc_var.set("Stopped")

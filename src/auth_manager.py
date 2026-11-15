@@ -137,7 +137,7 @@ def ensure_portal_authenticated(
 
 
 def check_is_session_expired(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Detect whether the portal session has expired or been evicted.
+    """Detect whether the portal session has expired or been evicted with fast JS evaluation.
 
     Args:
         page: Active Playwright page.
@@ -146,6 +146,22 @@ def check_is_session_expired(page: Page, selectors: Dict[str, Any]) -> bool:
     Returns:
         bool: True if page indicates session expiration or forced redirection to login.
     """
+    if not page or page.is_closed():
+        return True
+
+    try:
+        is_exp = page.evaluate("""() => {
+            const exp = document.querySelector("#sessionExpiredAlert, .session-expired, [data-session-expired='true']");
+            if (exp && exp.offsetParent !== null) return true;
+            const pwd = document.querySelector("#login-password-input, input[type='password']");
+            if (pwd && pwd.offsetParent !== null) return true;
+            return false;
+        }""")
+        if is_exp:
+            return True
+    except Exception:
+        pass
+
     state = detect_portal_state(page, selectors)
     if state == STATE_SESSION_EXPIRED:
         return True

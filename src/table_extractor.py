@@ -63,28 +63,9 @@ def find_results_table(page: Page) -> Optional[Locator]:
     return None
 
 
-def detect_column_mapping(table: Locator) -> Dict[str, int]:
-    """Inspect table headers across thead th, tr th, or first row td to determine column indices.
-
-    Resilient to header renaming, case differences, punctuation, and extra columns.
-
-    Args:
-        table: Active table Locator.
-
-    Returns:
-        Dict[str, int]: Map of logical field names to zero-based column indices.
-    """
+def map_headers_to_columns(headers: List[str]) -> Dict[str, int]:
+    """Map a list of lowercase column header strings to logical field keys."""
     col_map: Dict[str, int] = {}
-    header_locs = table.locator("thead th").all()
-    if not header_locs:
-        header_locs = table.locator("tr th").all()
-    if not header_locs:
-        first_row = table.locator("tr").first
-        if first_row.count() > 0:
-            header_locs = first_row.locator("td").all()
-
-    headers = [th.inner_text().strip().lower() for th in header_locs]
-
     for idx, raw_h in enumerate(headers):
         h = raw_h.replace(".", " ").replace("_", " ").replace("/", " ").replace("-", " ")
         words = h.split()
@@ -121,6 +102,29 @@ def detect_column_mapping(table: Locator) -> Dict[str, int]:
             col_map["desc"] = idx
 
     return col_map
+
+
+def detect_column_mapping(table: Locator) -> Dict[str, int]:
+    """Inspect table headers across thead th, tr th, or first row td to determine column indices.
+
+    Resilient to header renaming, case differences, punctuation, and extra columns.
+
+    Args:
+        table: Active table Locator.
+
+    Returns:
+        Dict[str, int]: Map of logical field names to zero-based column indices.
+    """
+    header_locs = table.locator("thead th").all()
+    if not header_locs:
+        header_locs = table.locator("tr th").all()
+    if not header_locs:
+        first_row = table.locator("tr").first
+        if first_row.count() > 0:
+            header_locs = first_row.locator("td").all()
+
+    headers = [th.inner_text().strip().lower() for th in header_locs]
+    return map_headers_to_columns(headers)
 
 
 def infer_columns_from_cell_values(cell_texts: List[str]) -> Dict[str, int]:
@@ -164,7 +168,7 @@ def infer_columns_from_cell_values(cell_texts: List[str]) -> Dict[str, int]:
 
 
 def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Parse table rows currently rendered on the page into transaction dictionaries.
+    """Parse table rows currently rendered on the page into transaction dictionaries with fast single-pass JS evaluation.
 
     Uses header name mapping, data-testid attributes, and value-based inference to ensure
     perfect alignment regardless of table column variations or layout shifts.
@@ -180,33 +184,54 @@ def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dic
     if not table:
         return []
 
-    col_map = detect_column_mapping(table)
+    try:
+        table_data = page.evaluate("""() => {
+            const table = document.querySelector("#transactions-table, [data-testid='transactions-table'], table");
+            if (!table) return null;
 
-    rows = table.locator("tbody tr")
-    if rows.count() == 0:
-        rows = table.locator("tr:has(td)")
+            let ths = Array.from(table.querySelectorAll("thead th")).map(th => th.innerText.trim().toLowerCase());
+            if (ths.length === 0) {
+                ths = Array.from(table.querySelectorAll("tr th")).map(th => th.innerText.trim().toLowerCase());
+            }
 
-    row_count = rows.count()
+            const trs = Array.from(table.querySelectorAll("tbody tr, tr:has(td)"));
+            const rows = [];
+
+            for (const tr of trs) {
+                const tds = Array.from(tr.querySelectorAll("td"));
+                if (tds.length < 3) continue;
+
+                const testids = {};
+                for (const td of tds) {
+                    const tid = td.getAttribute("data-testid");
+                    if (tid) testids[tid] = td.innerText.trim();
+                }
+                const cells = tds.map(td => td.innerText.trim());
+                rows.push({ testids, cells });
+            }
+            return { headers: ths, rows };
+        }""")
+    except Exception:
+        table_data = None
+
+    if not table_data or not table_data.get("rows"):
+        return []
+
+    headers = table_data.get("headers", [])
+    raw_rows = table_data.get("rows", [])
+    col_map = map_headers_to_columns(headers) if headers else {}
     results: List[Dict[str, Any]] = []
 
-    # Optional header locs for offset calculation
-    header_locs = table.locator("thead th").all()
-    headers = [th.inner_text().strip().lower() for th in header_locs]
-
-    for i in range(row_count):
-        row_el = rows.nth(i)
-        cells = row_el.locator("td")
-        c_count = cells.count()
+    for i, row_item in enumerate(raw_rows):
+        testids = row_item.get("testids", {})
+        cell_texts = row_item.get("cells", [])
+        c_count = len(cell_texts)
         if c_count < 3:
             continue
 
-        cell_texts = [cells.nth(c).inner_text().strip() for c in range(c_count)]
-
-        # If key columns missing from header map, try value inference on this row
         row_inferred = infer_columns_from_cell_values(cell_texts)
 
         def get_val(key: str, default_idx: int) -> str:
-            # 1. Check data-testid attribute on cell
             testid_map = {
                 "consumer": "cell-consumer-number",
                 "bank": "cell-biller",
@@ -220,25 +245,19 @@ def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dic
                 "desc": "cell-response-description",
             }
             tid = testid_map.get(key)
-            if tid:
-                cell_loc = row_el.locator(f"[data-testid='{tid}']")
-                if cell_loc.count() > 0:
-                    return cell_loc.first.inner_text().strip()
+            if tid and tid in testids:
+                return testids[tid]
 
-            # 2. Check detected header index
             if key in col_map and col_map[key] < c_count:
                 return cell_texts[col_map[key]]
 
-            # 3. Check value-inferred index
             if key in row_inferred and row_inferred[key] < c_count:
                 return cell_texts[row_inferred[key]]
 
-            # 4. Fallback to default positional index
             if default_idx < c_count:
                 return cell_texts[default_idx]
             return ""
 
-        # Default fallback indices depend on whether Sr. No. is column 0
         has_sr_no = "sr" in headers[0] if headers else (c_count >= 11)
         offset = 1 if has_sr_no else 0
 
@@ -272,7 +291,7 @@ def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dic
 
 
 def has_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Check if pagination has an active, clickable Next button.
+    """Check if pagination has an active, clickable Next button via fast JS check.
 
     Args:
         page: Active Playwright page.
@@ -281,29 +300,17 @@ def has_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
     Returns:
         bool: True if Next button exists and is not disabled.
     """
-    next_selectors = [
-        "#btn-page-next",
-        "[data-testid='btn-page-next']",
-        selectors.get("results", {}).get("pagination_next", "#btnNextPage"),
-        "button:has-text('Next')",
-        "button:has-text('›')",
-        "a:has-text('Next')",
-        "[aria-label*='next' i]",
-        "#btnNextPage",
-    ]
-    for sel in next_selectors:
-        try:
-            loc = page.locator(sel).first
-            if loc.is_visible(timeout=300):
-                is_disabled = (
-                    loc.is_disabled()
-                    or "disabled" in (loc.get_attribute("class") or "")
-                    or loc.get_attribute("aria-disabled") == "true"
-                )
-                return not is_disabled
-        except Exception:
-            continue
-    return False
+    try:
+        has_next = page.evaluate("""() => {
+            const btn = document.querySelector("#btn-page-next, [data-testid='btn-page-next'], #btnNextPage, button:has-text('Next')");
+            if (!btn) return false;
+            if (btn.offsetParent === null) return false;
+            if (btn.disabled || btn.classList.contains("disabled") || btn.getAttribute("aria-disabled") === "true") return false;
+            return true;
+        }""")
+        return bool(has_next)
+    except Exception:
+        return False
 
 
 def click_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
