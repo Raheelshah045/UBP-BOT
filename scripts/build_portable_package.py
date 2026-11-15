@@ -108,10 +108,12 @@ def build_portable_distribution() -> Path:
             gitkeep.touch()
 
     # Step 5: Copy configuration and sample input files
-    sample_src = project_root / "sample_input.xlsx"
+    sample_src = project_root / "input" / "sample_input.xlsx"
+    if not sample_src.exists():
+        sample_src = project_root / "sample_input.xlsx"
     if sample_src.exists():
-        shutil.copy2(str(sample_src), str(portable_root / "sample_input.xlsx"))
         shutil.copy2(str(sample_src), str(portable_root / "input" / "sample_input.xlsx"))
+        shutil.copy2(str(sample_src), str(portable_root / "sample_input.xlsx"))
 
     cfg_src = project_root / "config" / "config.json"
     if not cfg_src.exists():
@@ -220,7 +222,6 @@ def build_portable_distribution() -> Path:
         "This inspects folder permissions, browser binary availability, and portal network reachability.\n"
     )
     doc_file.write_text(doc_content, encoding="utf-8")
-    shutil.copy2(str(doc_file), str(project_root / "PORTABLE_DEPLOYMENT_GUIDE.md"))
 
     print(f"[✓] Portable distribution built successfully at:\n    {portable_root}")
     return portable_root

@@ -60,6 +60,7 @@ logs/*.log
 # Runtime Operational Folders (preserve directory structure via .gitkeep)
 input/*
 !input/.gitkeep
+!input/sample_input.xlsx
 processing/*
 !processing/.gitkeep
 completed/*
