@@ -102,3 +102,20 @@ def test_scan_directory_discovers_all_valid_candidate_extensions(tmp_path: Path)
     assert "f3.xls" in candidate_names
     assert "~$f1.csv" not in candidate_names
     assert "notes.txt" not in candidate_names
+
+
+def test_validate_file_structure_accepts_new_otc_format_without_bank_column(tmp_path: Path) -> None:
+    """Verify OTC files without an explicit Bank column validate successfully."""
+    import openpyxl
+
+    test_otc = tmp_path / "OTC_Daily_Report.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Date", "Description", "Consumer #"])
+    ws.append(["2026-11-12", "Payment", "00123456789"])
+    wb.save(test_otc)
+
+    val = validate_file_structure(test_otc)
+    assert val["is_valid"] is True
+    assert val["error"] is None
+    assert val["row_count"] == 1

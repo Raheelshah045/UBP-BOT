@@ -142,3 +142,60 @@ def test_end_to_end_login_navigation_search_and_report_generation(tmp_path: Path
         assert rej_sheet.cell(row=2, column=11).value == "51"
 
         browser.close()
+
+
+def test_end_to_end_search_ubl_default_bank_and_exact_date() -> None:
+    """Verify search execution selects UBL bank and fills exact date into from and to date inputs."""
+    check_bill_url = "http://127.0.0.1:8080/bps/check-bill-status"
+    selectors = {
+        "search": {
+            "bank_select": "#bankSelect",
+            "consumer_input": "#consumerNumberInput",
+            "from_date_input": "#fromDateInput",
+            "to_date_input": "#toDateInput",
+            "search_button": "#btnSearch",
+        },
+        "results": {
+            "table": "#transactionsTable",
+            "rows": "#transactionsTable tbody tr",
+            "loading_indicator": "#loadingSpinner",
+            "no_record_message": "#noRecordsAlert",
+        },
+    }
+    bank_mapping = {"UBL": "United Bank Limited (UBL)"}
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        # Step 1: Login
+        page.goto("http://127.0.0.1:8080/login")
+        page.fill("#username", "bank_operator")
+        page.fill("#password", "Password@123")
+        page.fill("#captcha", "7X9K2")
+        page.fill("#otp", "123456")
+        page.click("#btnLogin")
+
+        # Step 2: Navigate to Check Bill Status
+        page.goto(check_bill_url)
+
+        # Step 3: Execute search for UBL consumer with exact date
+        ubl_consumer = "70085296314001"
+        exact_date = "2026-11-10"
+        search_ok = execute_transaction_search(
+            page=page,
+            selectors=selectors,
+            bank_name="UBL",
+            consumer_number=ubl_consumer,
+            search_date=exact_date,
+            bank_mapping=bank_mapping,
+        )
+        assert search_ok is True
+
+        # Step 4: Verify results extracted for UBL
+        extracted = extract_all_transactions(page, selectors)
+        assert len(extracted) >= 1
+        assert extracted[0]["consumer_number"] == ubl_consumer
+
+        browser.close()

@@ -62,3 +62,53 @@ def test_excel_xlsx_input_processing_preserves_strings_and_leading_zeros(tmp_pat
     assert records[0]["bank_service"] == "MEEZAN"
     assert records[0]["date"] == "2026-11-05"
     assert records[0]["is_valid"] is True
+
+
+def test_new_otc_format_parses_column_a_and_m_and_defaults_to_ubl() -> None:
+    """Verify operational 19-column OTC format defaults to UBL and skips blank rows."""
+    sample_file = Path("input/FORMAT FOR OTC.xlsx")
+    if not sample_file.is_file():
+        pytest.skip("FORMAT FOR OTC.xlsx not present in input folder")
+
+    records = process_input_file(sample_file, valid_banks=["UBL", "HBL"])
+    assert len(records) == 3
+    assert records[0]["consumer_number"] == "000404650005056022"
+    assert records[0]["bank_service"] == "UBL"
+    assert records[0]["date"] == "2026-11-12"
+    assert records[0]["row_number"] == 2
+    assert records[0]["is_valid"] is True
+
+    assert records[1]["consumer_number"] == "0106127661"
+    assert records[1]["bank_service"] == "UBL"
+    assert records[1]["date"] == "2026-11-12"
+    assert records[1]["row_number"] == 3
+
+    assert records[2]["consumer_number"] == "0106127708"
+    assert records[2]["bank_service"] == "UBL"
+    assert records[2]["date"] == "2026-11-12"
+    assert records[2]["row_number"] == 4
+
+
+def test_synthetic_19_column_otc_format_maps_headers_and_defaults_to_ubl(tmp_path: Path) -> None:
+    """Verify dynamic 19-column spreadsheet without bank defaults to UBL."""
+    import openpyxl
+
+    xlsx_path = tmp_path / "OTC_Format_Test.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    headers = [
+        "Date", "Description", "Stan", "UNIQUE_ID", "ORIG_BRANCH", "ACCOUNT #",
+        "Nature", "Amount", "Aging", "Remarks", "Remarks 2", "TRIM",
+        "Consumer #", "Key 1", "MATCH", " AMOUNT2", "Narration Trim", "MID", "RIGHT 13",
+    ]
+    ws.append(headers)
+    ws.append(["2026-11-15 00:00:00"] + ["dummy"] * 11 + ["000123456789"] + ["x"] * 6)
+    ws.append(["2026-11-15 00:00:00"] + [""] * 18)  # Empty consumer row
+    wb.save(xlsx_path)
+
+    records = process_input_file(xlsx_path)
+    assert len(records) == 1
+    assert records[0]["consumer_number"] == "000123456789"
+    assert records[0]["bank_service"] == "UBL"
+    assert records[0]["date"] == "2026-11-15"
+    assert records[0]["is_valid"] is True

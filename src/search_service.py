@@ -378,10 +378,22 @@ def fill_search_fields(
 
     # 3. Populate From Date and To Date using adaptive date locator
     from_date_input, to_date_input = find_date_inputs(page)
+    if not (from_date_input and to_date_input):
+        from_sel = search_sel.get("from_date_input", "#from-date-input, #fromDateInput")
+        to_sel = search_sel.get("to_date_input", "#to-date-input, #toDateInput")
+        try:
+            f_loc = page.locator(from_sel).first
+            t_loc = page.locator(to_sel).first
+            if f_loc.is_visible(timeout=100) and t_loc.is_visible(timeout=100):
+                from_date_input, to_date_input = f_loc, t_loc
+        except Exception:
+            pass
+
     if from_date_input and to_date_input:
         try:
-            from_date_input.fill(search_date)
-            to_date_input.fill(search_date)
+            clean_date = str(search_date).strip()
+            from_date_input.fill(clean_date)
+            to_date_input.fill(clean_date)
         except Exception:
             pass
 

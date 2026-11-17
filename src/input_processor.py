@@ -10,8 +10,9 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-REQUIRED_COLUMNS = ["Consumer Number", "Bank / Service", "Date"]
+REQUIRED_COLUMNS = ["Consumer Number", "Date"]
 GNB_REQUIRED_COLUMNS = ["Transaction ID"]
+DEFAULT_OTC_BANK = "UBL"
 
 
 def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -24,7 +25,7 @@ def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Renamed DataFrame with standardized canonical headers.
     """
     rename_map: Dict[Any, str] = {}
-    for col in df.columns:
+    for idx, col in enumerate(df.columns):
         c = str(col).strip().lower().replace("_", " ")
         if "consumer" in c:
             rename_map[col] = "Consumer Number"
@@ -32,10 +33,23 @@ def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             rename_map[col] = "Bank / Service"
         elif "transaction id" in c or "tx id" in c or "txid" in c:
             rename_map[col] = "Transaction ID"
-        elif "date" in c:
+        elif c == "date" or (idx == 0 and "date" in c):
             rename_map[col] = "Date"
         elif "timestamp" in c or "time" in c:
             rename_map[col] = "Timestamp"
+
+    # Positional fallback for Column A (Date) and Column M (Consumer # at index 12)
+    mapped_names = list(rename_map.values())
+    if "Date" not in mapped_names and len(df.columns) > 0:
+        first_col = df.columns[0]
+        if "date" in str(first_col).strip().lower():
+            rename_map[first_col] = "Date"
+
+    if "Consumer Number" not in mapped_names and len(df.columns) >= 13:
+        col_m = df.columns[12]
+        if "consumer" in str(col_m).strip().lower() or "#" in str(col_m):
+            rename_map[col_m] = "Consumer Number"
+
     return df.rename(columns=rename_map)
 
 
@@ -115,12 +129,50 @@ def validate_input_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"Input file is missing mandatory columns: {', '.join(missing)}")
 
 
+def _build_row_record(
+    row_num: int,
+    raw_consumer: str,
+    raw_bank: str,
+    raw_date: Any,
+    valid_banks: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Validate fields and construct a single transaction record dictionary."""
+    normalized_date = normalize_date_string(raw_date)
+    effective_bank = (
+        raw_bank
+        if raw_bank and raw_bank.lower() not in ("nan", "none")
+        else DEFAULT_OTC_BANK
+    )
+    is_valid = True
+    error_reasons: List[str] = []
+
+    if valid_banks and effective_bank != DEFAULT_OTC_BANK:
+        if effective_bank.upper() not in [b.upper() for b in valid_banks]:
+            is_valid = False
+            error_reasons.append(f"Bank '{effective_bank}' not in configured portal banks list")
+
+    if not normalized_date:
+        is_valid = False
+        error_reasons.append(f"Invalid date format: '{raw_date}'")
+
+    return {
+        "row_number": row_num,
+        "consumer_number": raw_consumer,
+        "bank_service": effective_bank,
+        "date": normalized_date if normalized_date else str(raw_date),
+        "is_valid": is_valid,
+        "validation_errors": error_reasons,
+    }
+
+
 def process_input_file(
     file_path: Path, valid_banks: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """Process an input Excel or CSV file into validated row records.
 
     Preserves row order, duplicate entries, leading zeros, and original row numbers.
+    Defaults bank to UBL when the Bank / Service column is omitted or empty.
+    Gracefully skips trailing or blank consumer rows.
 
     Args:
         file_path: Path to the input file.
@@ -139,36 +191,22 @@ def process_input_file(
     for idx, row in df.iterrows():
         spreadsheet_row_num = idx + 2
         raw_consumer = str(row.get("Consumer Number", "")).strip()
+
+        # Skip empty/blank consumer rows (e.g. trailing empty rows in spreadsheet)
+        if not raw_consumer or raw_consumer.lower() in ("nan", "none"):
+            continue
+
         raw_bank = str(row.get("Bank / Service", "")).strip()
         raw_date = row.get("Date")
 
-        normalized_date = normalize_date_string(raw_date)
-        is_valid = True
-        error_reasons: List[str] = []
-
-        if not raw_consumer:
-            is_valid = False
-            error_reasons.append("Consumer Number is empty")
-
-        if not raw_bank:
-            is_valid = False
-            error_reasons.append("Bank / Service is empty")
-        elif valid_banks and raw_bank.upper() not in [b.upper() for b in valid_banks]:
-            error_reasons.append(f"Bank '{raw_bank}' not in configured portal banks list")
-
-        if not normalized_date:
-            is_valid = False
-            error_reasons.append(f"Invalid date format: '{raw_date}'")
-
         records.append(
-            {
-                "row_number": spreadsheet_row_num,
-                "consumer_number": raw_consumer,
-                "bank_service": raw_bank,
-                "date": normalized_date if normalized_date else str(raw_date),
-                "is_valid": is_valid,
-                "validation_errors": error_reasons,
-            }
+            _build_row_record(
+                row_num=spreadsheet_row_num,
+                raw_consumer=raw_consumer,
+                raw_bank=raw_bank,
+                raw_date=raw_date,
+                valid_banks=valid_banks,
+            )
         )
 
     return records
