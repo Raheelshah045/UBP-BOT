@@ -318,10 +318,13 @@ def find_search_button_locator(page: Page, configured_selector: str) -> Optional
     return None
 
 
+_RESOLVED_BANK_VALUES: Dict[str, str] = {}
+
+
 def select_bank(
     page: Page, bank_selector: str, bank_name: str, bank_mapping: Dict[str, str]
 ) -> None:
-    """Select requested bank from dropdown if not already selected.
+    """Select requested bank from dropdown if not already selected with fast caching.
 
     Args:
         page: Active Playwright page.
@@ -329,17 +332,26 @@ def select_bank(
         bank_name: Target bank name.
         bank_mapping: Mapping dictionary.
     """
+    clean_bank = bank_name.strip().upper()
     dropdown = find_dropdown_locator(page, bank_selector)
     if not dropdown:
         return
 
     try:
         current_val = dropdown.evaluate("el => el.value")
-        options_data = dropdown.evaluate(
-            "el => Array.from(el.options).map(o => ({ value: o.value, text: o.text }))"
-        )
-        options_dict = {o["value"]: o["text"] for o in options_data if o.get("value")}
-        target_val = resolve_bank_option_value(bank_name, bank_mapping, options_dict)
+        if current_val and current_val.strip().upper() == clean_bank:
+            return
+
+        target_val = _RESOLVED_BANK_VALUES.get(clean_bank)
+        if not target_val:
+            options_data = dropdown.evaluate(
+                "el => Array.from(el.options).map(o => ({ value: o.value, text: o.text }))"
+            )
+            options_dict = {o["value"]: o["text"] for o in options_data if o.get("value")}
+            target_val = resolve_bank_option_value(bank_name, bank_mapping, options_dict)
+            if target_val:
+                _RESOLVED_BANK_VALUES[clean_bank] = target_val
+
         if target_val and target_val != current_val:
             dropdown.select_option(value=target_val)
     except Exception:
@@ -376,26 +388,37 @@ def fill_search_fields(
     if consumer_input:
         consumer_input.fill(str(consumer_number).strip())
 
-    # 3. Populate From Date and To Date using adaptive date locator
-    from_date_input, to_date_input = find_date_inputs(page)
-    if not (from_date_input and to_date_input):
-        from_sel = search_sel.get("from_date_input", "#from-date-input, #fromDateInput")
-        to_sel = search_sel.get("to_date_input", "#to-date-input, #toDateInput")
-        try:
-            f_loc = page.locator(from_sel).first
-            t_loc = page.locator(to_sel).first
-            if f_loc.is_visible(timeout=100) and t_loc.is_visible(timeout=100):
-                from_date_input, to_date_input = f_loc, t_loc
-        except Exception:
-            pass
+    # 3. Populate From Date and To Date (skips redundant typing if current value matches)
+    clean_date = str(search_date).strip()
+    try:
+        date_state = page.evaluate("""() => {
+            const f = document.querySelector("#from-date-input, [data-testid='from-date-input'], #fromDateInput, #fromDate, input[name*='from' i]");
+            const t = document.querySelector("#to-date-input, [data-testid='to-date-input'], #toDateInput, #toDate, input[name*='to' i]");
+            return {
+                fVal: f ? f.value : null,
+                tVal: t ? t.value : null,
+            };
+        }""")
+        if date_state.get("fVal") != clean_date or date_state.get("tVal") != clean_date:
+            from_date_input, to_date_input = find_date_inputs(page)
+            if from_date_input and to_date_input:
+                from_date_input.fill(clean_date)
+                to_date_input.fill(clean_date)
+    except Exception:
+        pass
 
-    if from_date_input and to_date_input:
-        try:
-            clean_date = str(search_date).strip()
-            from_date_input.fill(clean_date)
-            to_date_input.fill(clean_date)
-        except Exception:
-            pass
+
+def _get_active_row_text(page: Page, table_sel: str) -> Optional[str]:
+    """Fast extraction of current table first row text without locator timeouts."""
+    try:
+        return page.evaluate("""(sel) => {
+            const table = document.querySelector(sel + ', #transactions-table, #transactionsTable, table');
+            if (!table || (table.offsetParent === null && table.offsetHeight === 0)) return null;
+            const r = table.querySelector('tbody tr, tr:has(td)');
+            return (r && (r.offsetParent !== null || r.offsetHeight > 0)) ? r.innerText.trim() : null;
+        }""", table_sel)
+    except Exception:
+        return None
 
 
 def execute_transaction_search(
@@ -407,7 +430,7 @@ def execute_transaction_search(
     bank_mapping: Dict[str, str],
     timeout_ms: int = 15000,
 ) -> bool:
-    """Execute transaction search with reliable submission and fresh result state validation.
+    """Execute transaction search with fast JS state detection and fresh result validation.
 
     Guarantees:
     - Confirms the search action was submitted.
@@ -430,52 +453,27 @@ def execute_transaction_search(
     fill_search_fields(page, selectors, bank_name, consumer_number, search_date, bank_mapping)
 
     clean_target_consumer = str(consumer_number).strip()
-    results_sel = selectors.get("results", {})
-    no_rec_sel = results_sel.get(
-        "no_record_message",
-        "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']",
+    table_sel = selectors.get("results", {}).get(
+        "table", "#transactions-table, #transactionsTable, table"
     )
-    table_sel = results_sel.get(
-        "table",
-        "#transactions-table, #transactionsTable, [data-testid='transactions-table'], table",
-    )
-    loading_sel = results_sel.get(
-        "loading_indicator",
-        "#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading",
-    )
+    prev_row_text = _get_active_row_text(page, table_sel)
 
-    prev_row_text = None
-    try:
-        table_loc = page.locator(table_sel).first
-        if table_loc.is_visible(timeout=100):
-            body_rows = page.locator(f"{table_sel} tbody tr")
-            if body_rows.count() > 0:
-                prev_row_text = body_rows.first.inner_text(timeout=100)
-            else:
-                all_rows = page.locator(f"{table_sel} tr")
-                if all_rows.count() > 1:
-                    prev_row_text = all_rows.nth(1).inner_text(timeout=100)
-    except Exception:
-        pass
-
-    submitted = False
     configured_btn_sel = selectors.get("search", {}).get("search_button", "#btnSearch")
     search_btn = find_search_button_locator(page, configured_btn_sel)
+    submitted = False
     if search_btn:
         try:
-            search_btn.click(timeout=2000)
+            search_btn.click(timeout=1500)
             submitted = True
         except Exception:
             pass
 
     if not submitted:
-        consumer_sel = selectors.get("search", {}).get(
-            "consumer_input", "#consumer-number-input, #consumerNumberInput"
-        )
+        consumer_sel = selectors.get("search", {}).get("consumer_input", "#consumerNumberInput")
         consumer_field = find_consumer_input_locator(page, consumer_sel)
         if consumer_field:
             try:
-                consumer_field.press("Enter", timeout=2000)
+                consumer_field.press("Enter", timeout=1500)
                 submitted = True
             except Exception:
                 pass
@@ -483,52 +481,45 @@ def execute_transaction_search(
     if not submitted:
         return False
 
-    # Wait for loading spinner to clear if it appeared
-    try:
-        spinner_loc = page.locator(loading_sel).first
-        if spinner_loc.is_visible(timeout=150):
-            spinner_loc.wait_for(state="hidden", timeout=min(timeout_ms, 15000))
-    except Exception:
-        pass
-
     start_time = time.time()
     max_wait_seconds = max(2.0, min(timeout_ms / 1000.0, 15.0))
 
-    while (time.time() - start_time) < max_wait_seconds:
-        # State A: No records found alert is displayed
-        try:
-            no_rec_loc = page.locator(no_rec_sel).first
-            if no_rec_loc.is_visible(timeout=100):
-                return True
-        except Exception:
-            pass
+    poll_script = """([prevText, targetConsumer]) => {
+        const sp = document.querySelector("#loading-spinner, #loading-indicator, #loadingSpinner, .portal-loading, .spinner, .loading");
+        if (sp && (sp.offsetParent !== null || sp.classList.contains("active") || getComputedStyle(sp).display !== "none")) {
+            return "LOADING";
+        }
+        const noRec = document.querySelector("#no-records-message, #noRecordsAlert, [data-testid='no-records-message']");
+        if (noRec && (noRec.offsetParent !== null || noRec.offsetHeight > 0)) {
+            return "NO_RECORD";
+        }
+        const err = document.querySelector("#error-message, .alert-danger, [role='alert'].error");
+        if (err && (err.offsetParent !== null || err.offsetHeight > 0)) {
+            return "ERROR";
+        }
+        const table = document.querySelector("#transactions-table, #transactionsTable, [data-testid='transactions-table'], table");
+        if (table && (table.offsetParent !== null || table.offsetHeight > 0)) {
+            const bodyRows = table.querySelectorAll("tbody tr");
+            const rows = bodyRows.length > 0 ? bodyRows : table.querySelectorAll("tr:has(td)");
+            if (rows.length > 0) {
+                const firstRowText = rows[0].innerText.trim();
+                if (!prevText || firstRowText !== prevText || (targetConsumer && firstRowText.includes(targetConsumer))) {
+                    return "TABLE";
+                }
+            }
+        }
+        return "WAITING";
+    }"""
 
-        # State B: Portal error alert is displayed
+    while (time.time() - start_time) < max_wait_seconds:
         try:
-            err_loc = page.locator("#error-message, .alert-danger, [role='alert'].error").first
-            if err_loc.is_visible(timeout=50):
+            state = page.evaluate(poll_script, [prev_row_text, clean_target_consumer])
+            if state in ("TABLE", "NO_RECORD"):
+                return True
+            if state == "ERROR":
                 return False
         except Exception:
             pass
-
-        # State C: Table with data rows is displayed
-        try:
-            table_loc = page.locator(table_sel).first
-            if table_loc.is_visible(timeout=100):
-                body_rows = page.locator(f"{table_sel} tbody tr")
-                if body_rows.count() > 0:
-                    first_data_row = body_rows.first.inner_text(timeout=200)
-                    if prev_row_text is None or first_data_row != prev_row_text or clean_target_consumer in first_data_row:
-                        return True
-                else:
-                    all_rows = page.locator(f"{table_sel} tr")
-                    if all_rows.count() > 1:
-                        first_data_row = all_rows.nth(1).inner_text(timeout=200)
-                        if prev_row_text is None or first_data_row != prev_row_text or clean_target_consumer in first_data_row:
-                            return True
-        except Exception:
-            pass
-
-        time.sleep(0.1)
+        time.sleep(0.015)
 
     return False

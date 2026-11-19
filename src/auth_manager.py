@@ -150,15 +150,21 @@ def check_is_session_expired(page: Page, selectors: Dict[str, Any]) -> bool:
         return True
 
     try:
-        is_exp = page.evaluate("""() => {
+        status = page.evaluate("""() => {
             const exp = document.querySelector("#sessionExpiredAlert, .session-expired, [data-session-expired='true']");
-            if (exp && exp.offsetParent !== null) return true;
+            if (exp && (exp.offsetParent !== null || exp.offsetHeight > 0)) return "EXPIRED";
             const pwd = document.querySelector("#login-password-input, input[type='password']");
-            if (pwd && pwd.offsetParent !== null) return true;
-            return false;
+            if (pwd && (pwd.offsetParent !== null || pwd.offsetHeight > 0)) return "LOGIN";
+            const active = document.querySelector(
+                "#bankSelect, #biller-service-select, #consumerNumberInput, #consumer-number-input, #btnSearch, #btn-search-bill-status, #dashboard-page, #top-navbar, #bill-status-page, [data-authenticated='true']"
+            );
+            if (active && (active.offsetParent !== null || active.offsetHeight > 0)) return "ACTIVE";
+            return "UNKNOWN";
         }""")
-        if is_exp:
+        if status in ("EXPIRED", "LOGIN"):
             return True
+        if status == "ACTIVE":
+            return False
     except Exception:
         pass
 

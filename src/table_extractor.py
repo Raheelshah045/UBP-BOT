@@ -12,7 +12,7 @@ from playwright.sync_api import Locator, Page
 
 
 def check_is_no_record_found(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Check if the results view indicates that no records were found.
+    """Check if the results view indicates that no records were found with fast JS check.
 
     Args:
         page: Active Playwright page.
@@ -26,18 +26,20 @@ def check_is_no_record_found(page: Page, selectors: Dict[str, Any]) -> bool:
         "#no-records-message, #noRecordsAlert, [data-testid='no-records-message']",
     )
     try:
-        loc = page.locator(no_rec_sel)
-        if loc.count() > 0 and loc.first.is_visible(timeout=300):
-            return True
-        # Check text pattern if specific element not found
-        text_loc = page.locator("text=/No records? found/i")
-        return text_loc.count() > 0 and text_loc.first.is_visible(timeout=300)
+        return bool(page.evaluate("""(sel) => {
+            const noRec = document.querySelector(sel + ', #no-records-message, #noRecordsAlert');
+            if (noRec && (noRec.offsetParent !== null || noRec.offsetHeight > 0)) return true;
+            const textMatch = Array.from(document.querySelectorAll("div, p, span, td, .alert")).some(
+                el => (el.offsetParent !== null || el.offsetHeight > 0) && /no records? found/i.test(el.innerText)
+            );
+            return textMatch;
+        }""", no_rec_sel))
     except Exception:
         return False
 
 
 def find_results_table(page: Page) -> Optional[Locator]:
-    """Locate the visible transactions table adaptively.
+    """Locate the visible transactions table adaptively with fast locator check.
 
     Args:
         page: Active Playwright page.
@@ -56,7 +58,7 @@ def find_results_table(page: Page) -> Optional[Locator]:
     for sel in candidates:
         try:
             loc = page.locator(sel).first
-            if loc.is_visible(timeout=400):
+            if loc.is_visible(timeout=50):
                 return loc
         except Exception:
             continue
@@ -180,14 +182,10 @@ def extract_current_page_rows(page: Page, selectors: Dict[str, Any]) -> List[Dic
     Returns:
         List[Dict[str, Any]]: List of parsed transaction rows.
     """
-    table = find_results_table(page)
-    if not table:
-        return []
-
     try:
         table_data = page.evaluate("""() => {
-            const table = document.querySelector("#transactions-table, [data-testid='transactions-table'], table");
-            if (!table) return null;
+            const table = document.querySelector("#transactions-table, #transactionsTable, [data-testid='transactions-table'], table");
+            if (!table || (table.offsetParent === null && table.offsetHeight === 0)) return null;
 
             let ths = Array.from(table.querySelectorAll("thead th")).map(th => th.innerText.trim().toLowerCase());
             if (ths.length === 0) {
@@ -322,46 +320,42 @@ def find_next_page_locator(page: Page, selectors: Dict[str, Any]) -> Optional[Lo
 
 
 def has_next_page(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Check if pagination has an active, clickable Next button.
+    """Check if pagination has an active, clickable Next button with fast JS check.
 
     Verifies the Next control is attached, visible, not disabled, and not on final page.
     """
     try:
-        loc = find_next_page_locator(page, selectors)
-        if loc is None:
-            return False
+        configured_sel = selectors.get("results", {}).get("pagination_next", "")
+        return bool(page.evaluate("""(customSel) => {
+            const candidateSelectors = [
+                customSel,
+                "#btn-page-next",
+                "[data-testid='btn-page-next']",
+                "#btnNextPage",
+                "#next-page",
+                "#nextPage",
+                ".pagination-next",
+                ".page-next",
+                "li.next a",
+                "li.next button",
+                "button[aria-label*='Next' i]",
+                "a[aria-label*='Next' i]",
+                "button:has-text('Next')",
+                "a:has-text('Next')"
+            ].filter(Boolean);
 
-        if not loc.is_visible(timeout=200):
-            return False
-
-        if loc.is_disabled():
-            return False
-
-        # Additional DOM checks for class-based or aria-based disabling
-        handle = loc.element_handle()
-        if handle is None:
-            return False
-
-        is_disabled = page.evaluate("""(el) => {
-            if (!el) return true;
-            if (el.disabled) return true;
-            if (el.getAttribute('disabled') !== null) return true;
-            if (el.getAttribute('aria-disabled') === 'true') return true;
-            const cls = el.className || '';
-            if (typeof cls === 'string' && (
-                cls.includes('disabled') ||
-                cls.includes('opacity-50') ||
-                cls.includes('cursor-not-allowed')
-            )) {
-                return true;
-            }
-            const parent = el.closest('li');
-            if (parent && (parent.classList.contains('disabled') || parent.getAttribute('aria-disabled') === 'true')) {
+            for (const s of candidateSelectors) {
+                const el = document.querySelector(s);
+                if (!el || (el.offsetParent === null && el.offsetHeight === 0)) continue;
+                if (el.disabled || el.getAttribute('disabled') !== null || el.getAttribute('aria-disabled') === 'true') continue;
+                const cls = el.className || '';
+                if (typeof cls === 'string' && (cls.includes('disabled') || cls.includes('opacity-50') || cls.includes('cursor-not-allowed'))) continue;
+                const parent = el.closest('li');
+                if (parent && (parent.classList.contains('disabled') || parent.getAttribute('aria-disabled') === 'true')) continue;
                 return true;
             }
             return false;
-        }""", handle)
-        return not bool(is_disabled)
+        }""", configured_sel))
     except Exception:
         return False
 
