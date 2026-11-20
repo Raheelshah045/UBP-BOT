@@ -130,48 +130,25 @@ def create_desktop_dashboard(config_path: Optional[Path] = None) -> tk.Tk:
     )
 
     # =========================================================================
-    # 1. ENTERPRISE GLASS NAVIGATION BAR (64px)
+    # 1. COMPACT ENTERPRISE HEADER
     # =========================================================================
-    navbar_outer = tk.Frame(root, bg="#071829", height=64)
+    navbar_outer = tk.Frame(root, bg="#071829")
     navbar_outer.pack(fill="x")
 
-    navbar = tk.Frame(navbar_outer, bg=PRIMARY_NAVY, padx=24, pady=12)
+    navbar = tk.Frame(navbar_outer, bg=PRIMARY_NAVY, padx=24, pady=10)
     navbar.pack(fill="x")
 
     nav_left = tk.Frame(navbar, bg=PRIMARY_NAVY)
     nav_left.pack(side="left")
 
-    logo_badge = tk.Label(
+    brand_lbl = tk.Label(
         nav_left,
-        text="  UBP BOT  ",
-        font=("Segoe UI", 13, "bold"),
-        fg="#FFFFFF",
-        bg="#0369A1",
-        padx=6,
-        pady=3,
-    )
-    logo_badge.pack(side="left")
-
-    title_box = tk.Frame(nav_left, bg=PRIMARY_NAVY)
-    title_box.pack(side="left", padx=14)
-
-    title_lbl = tk.Label(
-        title_box,
-        text="Enterprise Dual-System Operations Cockpit",
-        font=("Segoe UI", 12, "bold"),
+        text="UBP BOT",
+        font=("Segoe UI", 15, "bold"),
         fg="#FFFFFF",
         bg=PRIMARY_NAVY,
     )
-    title_lbl.pack(anchor="w")
-
-    subtitle_lbl = tk.Label(
-        title_box,
-        text="Phase 1: Isolated OTC (BPS) & GNB Rejection Extraction • Strict Codes 95/98 Exclusion",
-        font=("Segoe UI", 8),
-        fg="#94A3B8",
-        bg=PRIMARY_NAVY,
-    )
-    subtitle_lbl.pack(anchor="w")
+    brand_lbl.pack(side="left")
 
     nav_right = tk.Frame(navbar, bg=PRIMARY_NAVY)
     nav_right.pack(side="right")
