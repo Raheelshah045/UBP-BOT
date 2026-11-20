@@ -45,7 +45,9 @@ All log entries passing through `get_logger()` and UI event callbacks pass throu
 - **Bearer Tokens**: `Bearer ***REDACTED***`
 - **Pakistani CNIC**: `42101-*******-1`
 - **16-Digit Card / Account Numbers**: `1234-****-****-5432`
-- **Consumer Numbers**: `1001******8901`
+- **Consumer Numbers in log context** (e.g., `consumer: 70085296314001`, `consumer_number=70085296314001`): `7008******4001`
+
+Consumer numbers are masked when they appear adjacent to the keyword `consumer` in log messages. Standalone 14-digit strings not preceded by this keyword are not automatically masked — callers must invoke `mask_consumer_number()` explicitly when logging consumer IDs in isolation.
 
 ### 3.4. Browser & Context Isolation
 - OTC runs with persistent user profile in `checkpoints/browser_profile`.

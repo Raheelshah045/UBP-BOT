@@ -49,35 +49,50 @@ For workstations with restricted administrative privileges or where installing P
 
 ## 3. UAT Execution Checklist
 
+> [!NOTE]
+> The following 10 UAT test cases must be executed on a **real portal environment** by designated business owners. Automated tests in `tests/` cover the same scenarios against mocks but do not constitute organizational UAT sign-off.
+
 Before granting production authorization, execute the following UAT test cases:
 
-- [ ] **TC-01: Directory Permission Validation**
+- [ ] **TC-01: First-Launch Directory Setup**
   - Launch application without configured directories.
-  - Verify mandatory first-launch setup appears.
-  - Point to a valid folder -> Verify write probe passes.
-  - Point to a read-only folder -> Verify error message displays and folder is rejected.
-- [ ] **TC-02: OTC Manual Authentication**
+  - Verify the mandatory directory setup dialog appears and cannot be dismissed without valid selections.
+  - Confirm application does not proceed to processing until both directories are configured.
+- [ ] **TC-02: Directory Permission Validation**
+  - Point input or output folder to a read-only system directory (e.g. `C:\Windows`).
+  - Verify error message is shown and directory is rejected.
+  - Point to a valid writable folder — verify it is accepted and persisted across restart.
+- [ ] **TC-03: Directory Lock During Active Processing**
+  - Start an OTC or GNB batch run.
+  - Attempt to change input/output directory via the UI while batch is running.
+  - Verify the UI blocks the directory change and displays a warning.
+- [ ] **TC-04: OTC Manual Authentication**
   - Click "Start OTC" with valid file in input directory.
   - Verify browser opens to BPS login page.
   - Enter credentials, CAPTCHA, and OTP.
   - Verify bot automatically detects authentication and transitions to Check Bill Status.
-- [ ] **TC-03: Strict Exclusion of Codes 95 & 98**
+- [ ] **TC-05: Strict Exclusion of Codes 95 & 98**
   - Run input file containing records with expected response codes 95 and 98.
-  - Verify resulting `output/OTC_Rejected_Transactions.xlsx` **omits codes 95 and 98**.
-- [ ] **TC-04: Formula Injection Protection**
+  - Verify resulting `output/OTC_Rejected_Transactions.xlsx` **omits codes 95 and 98 entirely**.
+- [ ] **TC-06: Formula Injection Protection**
   - Provide input file with consumer numbers or response text prefixed with `=`, `+`, `-`, `@`.
   - Open generated Excel report and verify symbols are escaped with a leading single quote `'` and do not execute.
-- [ ] **TC-05: GNB System Independence**
+- [ ] **TC-07: GNB System Independence**
   - Run GNB extraction while OTC is running or stopped.
   - Verify separate browser profile (`browser_profile_gnb`) is used.
   - Verify separate report (`GNB_Rejected_Transactions.xlsx`) is generated.
-- [ ] **TC-06: File Idempotency & Deduplication**
+  - Verify OTC state and report are unaffected by GNB run.
+- [ ] **TC-08: File Idempotency & Deduplication**
   - Re-place an identical input spreadsheet into `input/`.
   - Verify the bot identifies matching SHA-256 hash and immediately archives it to `completed/` without re-running queries.
-- [ ] **TC-07: Resumption from Checkpoint**
+- [ ] **TC-09: Resumption from Checkpoint**
   - Interrupt batch mid-run (click "Stop OTC" or close app).
   - Restart bot and click "Start OTC".
   - Verify previously completed rows are skipped and processing resumes from the uncompleted row.
+- [ ] **TC-10: Log Sanitization Verification**
+  - After a batch run, open the daily log file in `logs/`.
+  - Verify no raw passwords, tokens, or complete consumer numbers appear in plain text.
+  - Confirm consumer numbers appear masked (e.g., `7008******4001`).
 
 ---
 
@@ -98,10 +113,17 @@ If operational abnormalities, portal changes, or unforeseen network regressions 
      Copy-Item -Recurse logs logs_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')
      ```
 3. **Revert Application Code**:
-   - If rolling back from git branch:
+   - To revert to the last stable pre-Phase1 commit on the feature branch:
      ```powershell
-     git checkout main
+     git checkout feature/phase1-enterprise-readiness
+     git revert ae0f598 --no-edit
      ```
-   - If rolling back portable executable, replace the folder with the previously archived stable release folder.
+   - To return to the last stable state before Phase 1 commit:
+     ```powershell
+     git checkout 544ca57
+     ```
+     > [!WARNING]
+     > `git checkout main` does **not** contain Phase 1 code — `main` has never been updated with this branch. Rolling back via `git checkout main` returns to the state before this development effort. Rolling back to `544ca57` returns to the previous performance-tuned commit on the feature branch.
+   - If rolling back a portable executable, replace the folder with the previously archived stable release folder.
 4. **Notify Incident Management**:
    - Record batch ID and attach relevant sanitized log file from `logs/`.

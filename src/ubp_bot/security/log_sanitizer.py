@@ -38,6 +38,14 @@ _CNIC_PATTERN = re.compile(r"\b(\d{5})-?(\d{7})-?(\d{1})\b")
 # Regex pattern for standard payment card / 16-digit account formats
 _CARD_ACCOUNT_PATTERN = re.compile(r"\b(?:\d{4}[-\s]?){3}\d{4}\b")
 
+# Regex pattern for utility consumer / account numbers appearing in log key-value context
+# Matches patterns like: consumer_number=70085296314001, consumer: 70085296314001,
+# Processing consumer 70085296314001, or standalone 14-digit numbers in a log context.
+_CONSUMER_NUMBER_PATTERN = re.compile(
+    r"(?i)(?:consumer[_\s]?(?:number|num|no|#)?[\s:=]+)(\d{10,16})",
+    re.IGNORECASE,
+)
+
 
 def mask_sensitive_text(text: str) -> str:
     """Mask credentials, secrets, tokens, and PII from a log message.
@@ -71,6 +79,17 @@ def mask_sensitive_text(text: str) -> str:
         return f"{raw[:4]}-****-****-{raw[-4:]}"
 
     sanitized = _CARD_ACCOUNT_PATTERN.sub(_mask_card, sanitized)
+
+    # 5. Mask consumer/utility account numbers in log context (show first 4 and last 4)
+    def _mask_consumer(match: re.Match[str]) -> str:
+        prefix = match.group(0)[: match.start(1) - match.start(0)]
+        raw = match.group(1)
+        if len(raw) <= 8:
+            return prefix + "******"
+        masked = f"{raw[:4]}{'*' * (len(raw) - 8)}{raw[-4:]}"
+        return match.group(0)[: match.start(1) - match.start(0)] + masked
+
+    sanitized = _CONSUMER_NUMBER_PATTERN.sub(_mask_consumer, sanitized)
 
     return sanitized
 

@@ -45,3 +45,29 @@ def test_mask_consumer_number():
     assert mask_consumer_number("10012345678901") == "1001******8901"
     assert mask_consumer_number("12345") == "******"
     assert mask_consumer_number("") == ""
+
+
+def test_mask_sensitive_text_consumer_number_in_log_context():
+    """Verify consumer numbers are masked when appearing with the 'consumer' keyword in logs.
+
+    Regression test for security gap where consumer numbers like 70085296314001
+    were not masked by mask_sensitive_text() when logged inline as part of a message.
+    """
+    # Pairs of (raw_message, raw_consumer_number_that_must_not_appear)
+    cases = [
+        ("consumer 70085296314001", "70085296314001"),
+        ("Processing consumer_number 70085296314001 for bank UBL", "70085296314001"),
+        ("consumer: 70085296314001", "70085296314001"),
+        ("consumer_num=70085296314001", "70085296314001"),
+        ("consumer no: 1234567890", "1234567890"),
+    ]
+    for raw, bare_number in cases:
+        sanitized = mask_sensitive_text(raw)
+        # Full raw consumer number must not appear verbatim in log output
+        assert bare_number not in sanitized, (
+            f"Consumer number {bare_number!r} not masked in: {raw!r}\n"
+            f"  Sanitized output: {sanitized!r}"
+        )
+        # Result must contain at least one masking marker
+        assert "*" in sanitized, f"Expected mask stars in: {sanitized!r}"
+
