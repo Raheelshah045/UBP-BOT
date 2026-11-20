@@ -26,7 +26,7 @@ from src.checkpoint import (
 from src.classifier import classify_transaction
 from src.excel_reporter import generate_otc_rejected_report
 from src.input_processor import process_input_file
-from src.logger import get_logger, log_event
+from src.logger import get_logger, log_event, mask_consumer_number
 from src.portal_navigator import navigate_to_check_bill_status
 from src.search_service import execute_transaction_search
 from src.state_detector import is_check_bill_screen_present, is_portal_authenticated
@@ -257,14 +257,16 @@ def run_batch_automation(
         retry_limit = portal_cfg.get("retry_attempts", 3)
         timeout_ms = portal_cfg.get("search_timeout_ms", 15000)
 
+        consumer_display = mask_consumer_number(consumer_num)
         if on_message:
             on_message(
-                f"[{idx + 1}/{total_records}] Searching Consumer {consumer_num} ({bank}) for {search_date}..."
+                f"[{idx + 1}/{total_records}] Searching Consumer {consumer_display} ({bank}) for {search_date}..."
             )
 
         for attempt in range(1, retry_limit + 1):
             if _check_cancellation(stop_check):
                 break
+            attempt_started = time.perf_counter()
             try:
                 search_success = execute_transaction_search(
                     page,
@@ -287,6 +289,13 @@ def run_batch_automation(
                 )
                 if attempt < retry_limit and not _check_cancellation(stop_check):
                     time.sleep(portal_cfg.get("retry_delay_seconds", 1))
+            finally:
+                elapsed_ms = round((time.perf_counter() - attempt_started) * 1000)
+                if on_message:
+                    outcome = "result detected" if search_success else "result not confirmed"
+                    on_message(
+                        f"[OTC] Search attempt {attempt}/{retry_limit}: {outcome} in {elapsed_ms} ms."
+                    )
 
         if not search_success:
             record_row_result(
