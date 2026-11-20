@@ -157,7 +157,7 @@ def launch_persistent_browser_session(
         )
 
     headless = browser_config.get("headless", False)
-    slow_mo = browser_config.get("slow_mo_ms", 100)
+    slow_mo = browser_config.get("slow_mo_ms", 0)
     cdp_url = browser_config.get("cdp_url")
     channel = browser_config.get("channel")
     exec_path = browser_config.get("executable_path")
@@ -171,16 +171,30 @@ def launch_persistent_browser_session(
 
     # Mode 1: Connect to existing Chrome instance with remote debugging enabled
     if cdp_url:
-        _BROWSER = playwright_inst.chromium.connect_over_cdp(cdp_url)
-        _CONTEXT = _BROWSER.contexts[0] if _BROWSER.contexts else _BROWSER.new_context()
-        _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
-        _IS_CDP_CONNECTION = True
-        if initial_url and _PAGE.url in ("about:blank", ""):
+        connected_browser = playwright_inst.chromium.connect_over_cdp(cdp_url)
+
+        if system_name == "gnb":
+            # Never reuse the OTC browser context for GNB. A new context gives
+            # GNB an independent cookie/storage boundary on the shared CDP browser.
+            context = connected_browser.new_context()
+            page = context.new_page()
+            _GNB_PLAYWRIGHT = playwright_inst
+            _GNB_CONTEXT = context
+            _GNB_PAGE = page
+        else:
+            _BROWSER = connected_browser
+            _CONTEXT = _BROWSER.contexts[0] if _BROWSER.contexts else _BROWSER.new_context()
+            _PAGE = _CONTEXT.pages[0] if _CONTEXT.pages else _CONTEXT.new_page()
+            _IS_CDP_CONNECTION = True
+            context = _CONTEXT
+            page = _PAGE
+
+        if initial_url and page.url in ("about:blank", ""):
             try:
-                _PAGE.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(initial_url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
-        return _BROWSER, _CONTEXT, _PAGE
+        return connected_browser, context, page
 
     # Mode 2: Launch persistent profile context isolated per system
     base_user_data = browser_config.get("user_data_dir", "checkpoints/browser_profile")
@@ -322,8 +336,32 @@ def close_browser_session() -> None:
 
     _IS_CDP_CONNECTION = False
 
-    try:
-        from src.gnb_client import close_gnb_session
-        close_gnb_session()
-    except Exception:
-        pass
+
+
+
+
+def close_gnb_browser_manager_session() -> None:
+    """Close only the GNB session created by this browser manager."""
+    global _GNB_PLAYWRIGHT, _GNB_CONTEXT, _GNB_PAGE
+
+    if _GNB_PAGE is not None:
+        try:
+            if not _GNB_PAGE.is_closed():
+                _GNB_PAGE.close()
+        except Exception:
+            pass
+        _GNB_PAGE = None
+
+    if _GNB_CONTEXT is not None:
+        try:
+            _GNB_CONTEXT.close()
+        except Exception:
+            pass
+        _GNB_CONTEXT = None
+
+    if _GNB_PLAYWRIGHT is not None:
+        try:
+            _GNB_PLAYWRIGHT.stop()
+        except Exception:
+            pass
+        _GNB_PLAYWRIGHT = None
