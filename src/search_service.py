@@ -4,7 +4,6 @@ Fills search fields dynamically by reading screen inputs, executes query via ENT
 and detects search completion states with multi-layer adaptive fallbacks for layout variations.
 """
 
-import time
 from typing import Any, Dict, Optional, Tuple
 
 from playwright.sync_api import Locator, Page
@@ -481,7 +480,6 @@ def execute_transaction_search(
     if not submitted:
         return False
 
-    start_time = time.time()
     max_wait_seconds = max(2.0, min(timeout_ms / 1000.0, 15.0))
 
     poll_script = """([prevText, targetConsumer]) => {
@@ -511,15 +509,22 @@ def execute_transaction_search(
         return "WAITING";
     }"""
 
-    while (time.time() - start_time) < max_wait_seconds:
-        try:
-            state = page.evaluate(poll_script, [prev_row_text, clean_target_consumer])
-            if state in ("TABLE", "NO_RECORD"):
-                return True
-            if state == "ERROR":
-                return False
-        except Exception:
-            pass
-        time.sleep(0.015)
+    # Keep the polling inside the browser process. The former Python loop
+    # performed a Playwright IPC round-trip every 15 ms for up to 15 seconds.
+    # Ignore LOADING/WAITING until a terminal result state is reached.
+    wait_script = f"""(args) => {{
+        const state = ({poll_script})(args);
+        return state === "WAITING" || state === "LOADING" ? false : state;
+    }}"""
 
-    return False
+    try:
+        state_handle = page.wait_for_function(
+            wait_script,
+            arg=[prev_row_text, clean_target_consumer],
+            timeout=int(max_wait_seconds * 1000),
+            polling=100,
+        )
+        state = state_handle.json_value()
+        return state in ("TABLE", "NO_RECORD")
+    except Exception:
+        return False

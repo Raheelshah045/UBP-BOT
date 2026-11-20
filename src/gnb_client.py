@@ -552,7 +552,7 @@ def _execute_gnb_in_thread(
     launch_kwargs: Dict[str, Any] = {
         "user_data_dir": str(user_data_path),
         "headless": browser_cfg.get("headless", False),
-        "slow_mo": browser_cfg.get("slow_mo_ms", 100),
+        "slow_mo": browser_cfg.get("slow_mo_ms", 0),
         "args": ["--start-maximized"],
         "no_viewport": True,
         "ignore_https_errors": browser_cfg.get("ignore_https_errors", False),
