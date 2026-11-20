@@ -13,7 +13,6 @@
     "headless": false,
     "browser_type": "chromium",
     "slow_mo_ms": 0,
-    "slow_mo_ms": 0,
     "user_data_dir": "checkpoints/browser_profile",
     "cdp_url": null
   },
