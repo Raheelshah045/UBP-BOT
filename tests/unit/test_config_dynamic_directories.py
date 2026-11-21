@@ -1,16 +1,11 @@
 """Unit tests for dynamic input/output directory validation, persistence, and permissions."""
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
-import pytest
 
 from src.ubp_bot.core.config import (
     has_valid_directory_configuration,
-    load_config,
-    save_config,
     update_configured_directories,
     validate_directory_permissions,
 )
