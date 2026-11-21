@@ -2,7 +2,7 @@ name: UBP Bot CI
 
 on:
   push:
-    branches: [ main, feature/phase1-enterprise-readiness ]
+    branches: [ main, feature/phase1-enterprise-readiness, it-handover-final ]
   pull_request:
     branches: [ main ]
 
