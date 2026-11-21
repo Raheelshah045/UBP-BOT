@@ -1,7 +1,6 @@
 """Unit tests for OTC client classification, codes 95/98 exclusion, and bank resolution."""
 
 from src.ubp_bot.portals.otc_client import (
-    DEFAULT_EXCLUDED_CODES,
     classify_transaction,
     resolve_bank_option_value,
 )
