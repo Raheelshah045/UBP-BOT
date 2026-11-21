@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-
 from src.ubp_bot.core.config import (
     has_valid_directory_configuration,
     update_configured_directories,
