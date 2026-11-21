@@ -1,6 +1,5 @@
 """Unit tests for secret manager and credential protection."""
 
-import json
 import os
 from pathlib import Path
 
