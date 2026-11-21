@@ -1,96 +1,165 @@
-# UBP Bot — Dual-System Operations & Rejection Extraction (Phase 1)
+# UBP BOT
 
-**UBP Bot** is an enterprise-grade desktop automation platform designed for high-security banking workstations. It provides independent, parallel transaction monitoring and rejection extraction across dual banking systems: **OTC System** and **GNB System**.
+UBP BOT is a Windows desktop automation application for transaction-status verification and rejection extraction from two banking systems: the OTC BPS portal and the GNB portal.
 
----
+The application provides separate automation workflows, configurable input and output directories, Excel reporting, operational diagnostics, and safeguards for handling sensitive data.
 
-## Workspace Directory Layout
+## Supported Workflows
 
-UBP Bot maintains one shared workspace with strict data isolation:
+### OTC BPS Portal
+- Operator-assisted portal sign-in, including manual CAPTCHA and OTP steps where required.
+- Transaction lookup and result extraction.
+- Exclusion of response codes `95` and `98` from rejection reports.
+- Approved transactions, including response code `00` and `APPROVED`, are not treated as qualifying rejections.
+- Qualifying rejection results are written to `OTC_Rejected_Transactions.xlsx`.
+
+### GNB Portal
+- Separate browser profile and automation workflow.
+- Transaction lookup and rejection extraction.
+- Results are written to `GNB_Rejected_Transactions.xlsx`.
+
+OTC and GNB use separate browser contexts and output workbooks to keep their sessions and reporting workflows isolated.
+
+## Key Capabilities
+
+- **Desktop dashboard:** A graphical interface for starting workflows, monitoring progress, viewing status and selecting folders.
+- **Configurable directories:** Choose input and output folders through the folder-browse controls. Selected paths are validated and saved for subsequent application launches.
+- **Input monitoring and processing:** File stability checks, queue handling, duplicate detection and archival workflows.
+- **Checkpoint recovery:** SQLite-backed processing records support recovery of interrupted work.
+- **Excel reporting:** Separate workbooks for OTC and GNB, with spreadsheet formula-injection safeguards.
+- **Sensitive-data handling:** Configuration sanitization and log masking for supported credential, identity and payment-data patterns.
+- **Diagnostics:** Pre-flight checks for the runtime, dependencies, browser availability and directory permissions.
+
+## Repository Structure
 
 ```text
-UBP-Bot/
-│
-├── input/                      # Shared input directory for transaction spreadsheets
-│                               # e.g., OTC_Transactions.xlsx, GNB_Transactions.xlsx
-├── output/                     # Shared output folder for generated reports
-│                               # - OTC_Rejected_Transactions.xlsx
-│                               # - GNB_Rejected_Transactions.xlsx
-├── processing/                 # Transient working directory during active batch processing
-├── completed/                  # Archived successfully processed spreadsheets
-├── failed/                     # Ambiguous or invalid files archived for manual review
-├── logs/                       # Daily execution logs with masked identifiers
-├── checkpoints/                # Deduplication and checkpoint recovery SQLite databases
-│   ├── browser_profile/        # Persistent browser profile for OTC system
-│   └── browser_profile_gnb/    # Isolated persistent browser profile for GNB system
-└── config/                     # Central JSON configuration
-    └── config.json
+UBP-BOT/
+├── main.py
+├── README.md
+├── pyproject.toml
+├── requirements.txt
+├── .env.example
+├── src/
+│   └── ubp_bot/
+│       ├── app.py
+│       ├── ui/
+│       │   ├── dashboard.py
+│       │   └── dialogs.py
+│       ├── core/
+│       │   ├── config.py
+│       │   ├── queue_manager.py
+│       │   ├── file_detector.py
+│       │   └── pipeline.py
+│       ├── portals/
+│       │   ├── otc_client.py
+│       │   └── gnb_client.py
+│       ├── services/
+│       │   ├── excel_reporter.py
+│       │   ├── diagnostics.py
+│       │   └── browser_manager.py
+│       └── security/
+│           ├── secret_manager.py
+│           └── log_sanitizer.py
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── regression/
+│   └── fixtures/
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── MODULE_REFERENCE.md
+│   ├── WORKFLOW_REFERENCE.md
+│   ├── SECURITY_CONTROLS.md
+│   ├── TESTING.md
+│   ├── OPERATIONS_RUNBOOK.md
+│   └── DEPLOYMENT_READINESS.md
+└── deployment/
+    ├── build/
+    └── packaging/
 ```
 
----
+## Requirements
 
-## Phase 1 Core Architecture
+For source-based execution:
 
-### Dual Independent Banking Systems
+- Windows environment supported by the application dependencies.
+- Python 3.10.
+- Dependencies installed from `requirements.txt`.
+- Playwright browser runtime available to the application.
+- Network access to the approved banking portals.
 
-1. **System A: OTC System**
-   - Configurable OTC portal URL on main dashboard.
-   - Preserves manual authentication (Credentials, CAPTCHA, OTP) with automated session detection.
-   - Extracts rejected transactions from Bill Payment System (BPS).
-   - **Strict Exclusion Rule**: Response codes **95** and **98** are strictly excluded from output reports.
-   - Output: `output/OTC_Rejected_Transactions.xlsx`.
+For managed workstation deployment, confirm installation permissions, browser/runtime provisioning, filesystem access and network allowlisting with the responsible IT teams. Do not place credentials, customer data, browser sessions or production reports in the source repository.
 
-2. **System B: GNB System**
-   - Configurable GNB portal URL on main dashboard.
-   - Autonomous or manual authentication flow.
-   - Extracts rejected transactions directly into `output/GNB_Rejected_Transactions.xlsx`.
-   - Complete browser session and context isolation from OTC.
+## Getting Started
 
-### Portable Deployment Architecture
+### 1. Obtain the source
 
-- **Standalone Executable**: Built with PyInstaller as a standalone executable bundle (`UBP-Bot.exe`).
-- **No System Python Required**: Operates using its bundled Python runtime without requiring Python in PATH.
-- **Offline Chromium Binaries**: Uses portable browser binaries packaged in `browsers/` or connects to system browsers.
-- **Flexible Browser Integration**:
-  - **Bundled Chromium (Default)**: Offline Chromium binaries located in `browsers/`.
-  - **System Microsoft Edge**: Set `"channel": "msedge"` in `config/config.json` to utilize the local IT-managed Edge browser.
-  - **Chrome DevTools Protocol (CDP)**: Set `"cdp_url": "http://localhost:9222"` in `config/config.json` to connect to an existing running browser instance.
+Clone the repository from the organization-approved Git hosting location, or use the source package supplied through the approved IT handover process.
 
----
+### 2. Install dependencies
 
-## Launching UBP Bot
+Open PowerShell in the repository directory:
 
-### Desktop Interface (Recommended)
-In the portable distribution, double-click `run_ubp_bot.bat`, or from source run:
-```bash
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Provision the Playwright browser runtime according to the workstation's approved installation policy and the application's deployment instructions.
+
+### 3. Launch the application
+
+```powershell
 python main.py
 ```
 
-### Pre-flight Diagnostics
-In the portable distribution, double-click `verify_environment.bat`, or from source run:
-```bash
+### 4. Run diagnostics
+
+```powershell
 python main.py --diagnostics
 ```
-Pre-flight diagnostics verify directory write permissions, core library availability, browser runtime paths, and portal reachability.
 
-### Command-Line Execution
-- **Process a Single Input Spreadsheet**:
-  ```bash
-  python main.py --cli --input tests/fixtures/sample_input.xlsx --output output
-  ```
-- **Continuous Input Directory Monitoring**:
-  ```bash
-  python main.py --monitor
-  ```
-- **Extract GNB System Rejections**:
-  ```bash
-  python main.py --gnb
-  ```
-- **Extract Both Systems Concurrently**:
-  ```bash
-  python main.py --all-systems
-  ```
-- **Run Local Mock Portal for Testing**:
-  ```bash
-  python main.py --mock
-  ```
+Review diagnostic results and resolve environment or permission issues before connecting to a live banking portal.
+
+## Testing and Code Quality
+
+Run the automated test suite:
+
+```powershell
+python -m pytest -q
+```
+
+Run lint checks:
+
+```powershell
+python -m ruff check src main.py tests
+```
+
+Run the security static-analysis scan:
+
+```powershell
+python -m bandit -r src/ubp_bot/ -ll
+```
+
+A passing automated test or static-analysis run does not replace live-environment UAT, security assessment, or formal deployment approval.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Module Reference](docs/MODULE_REFERENCE.md)
+- [Workflow Reference](docs/WORKFLOW_REFERENCE.md)
+- [Security Controls](docs/SECURITY_CONTROLS.md)
+- [Testing Guide](docs/TESTING.md)
+- [Operations Runbook](docs/OPERATIONS_RUNBOOK.md)
+- [Deployment Readiness](docs/DEPLOYMENT_READINESS.md)
+
+## Security and Operational Notes
+
+- Use only approved banking portal accounts and authorized workstation environments.
+- Never commit credentials, customer information, production reports, browser profiles or session data.
+- Keep application configuration and runtime data in locations approved by IT.
+- Restrict access to input files, generated reports, logs and checkpoint databases.
+- Validate the application in the designated test environment before any production use.
+- Production deployment requires the applicable IT, Information Security and change-management approvals.
