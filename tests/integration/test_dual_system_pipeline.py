@@ -1,10 +1,8 @@
 """Integration tests for dual-system pipeline and cross-system data isolation."""
 
-import tempfile
 from pathlib import Path
 
 import openpyxl
-import pytest
 
 from src.ubp_bot.core.file_detector import identify_system_target
 from src.ubp_bot.services.excel_reporter import (
