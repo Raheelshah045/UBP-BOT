@@ -2,7 +2,7 @@ name: UBP Bot CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/phase1-enterprise-readiness ]
   pull_request:
     branches: [ main ]
 
@@ -59,7 +59,7 @@ jobs:
 
           chrome_exes = list(portable.glob('browsers/chromium-*/chrome-win/chrome.exe'))
           assert len(chrome_exes) > 0, 'Bundled portable Chromium binary is missing'
-          print('[✓] Portable Windows package structural validation PASSED!')
+          print('[OK] Portable Windows package structural validation PASSED!')
           "
 
       - name: Run Portable Executable Pre-Flight Diagnostics
