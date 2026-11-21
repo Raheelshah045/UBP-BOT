@@ -10,6 +10,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# GitHub Actions Windows runners may use cp1252; keep build logs UTF-8 safe.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def build_portable_distribution() -> Path:
     """Build the standalone PyInstaller executable and assemble the portable folder."""
@@ -219,7 +225,7 @@ def build_portable_distribution() -> Path:
     )
     doc_file.write_text(doc_content, encoding="utf-8")
 
-    print(f"[✓] Portable distribution built successfully at:\n    {portable_root}")
+    print(f"[OK] Portable distribution built successfully at:\n    {portable_root}")
     return portable_root
 
 

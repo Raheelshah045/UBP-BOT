@@ -85,3 +85,8 @@ sample_ubl_20.xlsx
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Deployment packages (large binaries exceeding git limit)
+deployment/packaging/*.zip
+deployment/build/
+dist/
