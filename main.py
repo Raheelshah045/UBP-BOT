@@ -3,7 +3,6 @@
 Delegates execution to src.ubp_bot.app.
 """
 
-import sys
 from src.ubp_bot.app import main
 
 if __name__ == "__main__":
