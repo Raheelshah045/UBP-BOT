@@ -64,15 +64,26 @@ def release_stale_profile_lock(profile_dir: Path) -> None:
 
 
 def is_gnb_authenticated(page: Page, selectors: Dict[str, Any]) -> bool:
-    """Check if the GNB session is authenticated."""
+    """Check whether a visible authenticated GNB page indicator is present."""
+    if not page or page.is_closed():
+        return False
+
+    login_cfg = selectors.get("login", {})
     auth_selector = (
-        selectors.get("login", {}).get("auth_indicator")
-        or "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true'], a[href*='logout'], button:has-text('Logout')"
+        login_cfg.get("auth_indicator")
+        or "#gnb-dashboard, #gnb-user-profile, [data-gnb-authenticated='true'], "
+        "a[href*='logout'], button:has-text('Logout')"
     )
-    for sel in [s.strip() for s in auth_selector.split(",")]:
+    if isinstance(auth_selector, str):
+        candidates = [item.strip() for item in auth_selector.split(",") if item.strip()]
+    elif isinstance(auth_selector, (list, tuple)):
+        candidates = [str(item).strip() for item in auth_selector if str(item).strip()]
+    else:
+        candidates = []
+
+    for selector in candidates:
         try:
-            loc = page.locator(sel).first
-            if loc.is_visible(timeout=1000):
+            if page.locator(selector).first.is_visible(timeout=300):
                 return True
         except Exception:
             continue
@@ -86,31 +97,42 @@ def login_gnb_portal(
     on_message: Optional[Callable[[str], None]] = None,
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
-    """Navigate to GNB login page and authenticate if credentials are provided."""
+    """Open GNB visibly and wait until the authenticated portal state is verified."""
     logger = get_logger("gnb_client")
     login_url = gnb_config.get("login_url", "http://127.0.0.1:8080/")
+    timeout_seconds = max(1, int(gnb_config.get("auth_timeout_seconds", 300)))
+    poll_interval = max(0.25, float(gnb_config.get("auth_poll_interval_seconds", 0.5)))
+
+    def notify(message: str, level: int = 20) -> None:
+        if on_message:
+            on_message(message)
+        log_event(logger, level, message)
 
     if stop_event and stop_event.is_set():
         return False
+    if not page or page.is_closed():
+        notify("[GNB] Browser page is unavailable; authentication cannot start.", 40)
+        return False
 
-    if on_message:
-        on_message(f"[GNB] Connecting to GNB System at {login_url}...")
-    log_event(logger, 20, f"[GNB] Connecting to GNB System at {login_url}")
-
+    notify(f"[GNB] Opening GNB portal: {login_url}")
     try:
-        page.goto(login_url, wait_until="domcontentloaded", timeout=gnb_config.get("timeout_ms", 30000))
+        page.goto(
+            login_url,
+            wait_until="domcontentloaded",
+            timeout=gnb_config.get("timeout_ms", 30000),
+        )
     except Exception as exc:
-        log_event(logger, 30, f"[GNB] Notice navigating to GNB {login_url}: {exc}")
+        notify(f"[GNB] Initial navigation notice: {type(exc).__name__}: {exc}", 30)
+        if page.is_closed():
+            return False
 
     if is_gnb_authenticated(page, selectors):
-        if on_message:
-            on_message("[GNB] GNB session already authenticated.")
+        notify("[GNB] Existing authenticated session detected.")
         return True
 
+    login_sels = selectors.get("login", {})
     username = gnb_config.get("username", "")
     password = gnb_config.get("password", "")
-
-    login_sels = selectors.get("login", {})
     user_input_sel = login_sels.get(
         "username_input",
         "#gnb-username, input[type='email'], input[name='email'], input[name='username'], #email, #username",
@@ -121,7 +143,8 @@ def login_gnb_portal(
     )
     submit_btn_sel = login_sels.get(
         "submit_button",
-        "#gnb-login-btn, button[type='submit'], input[type='submit'], button:has-text('Log in'), button:has-text('Login'), button:has-text('Sign in')",
+        "#gnb-login-btn, button[type='submit'], input[type='submit'], "
+        "button:has-text('Log in'), button:has-text('Login'), button:has-text('Sign in')",
     )
 
     if username and password:
@@ -129,32 +152,46 @@ def login_gnb_portal(
             page.locator(user_input_sel).first.fill(username, timeout=5000)
             page.locator(pwd_input_sel).first.fill(password, timeout=5000)
             page.locator(submit_btn_sel).first.click(timeout=5000)
-            page.wait_for_load_state("networkidle", timeout=10000)
+            # Do not wait for networkidle: banking portals may keep network requests open.
+            page.wait_for_timeout(300)
+            notify("[GNB] Login form submitted; waiting for portal authentication.")
         except Exception as exc:
-            log_event(logger, 30, f"[GNB] Automatic GNB login submission failed: {exc}")
+            notify(
+                f"[GNB] Automatic login submission was not completed; manual login remains available: "
+                f"{type(exc).__name__}: {exc}",
+                30,
+            )
 
     if is_gnb_authenticated(page, selectors):
-        if on_message:
-            on_message("[GNB] GNB authentication successful.")
+        notify("[GNB] Authentication confirmed.")
         return True
 
-    if on_message:
-        on_message("[GNB] Please complete GNB login in the browser window...")
+    notify("[GNB] Complete credentials, CAPTCHA, and OTP in the visible browser window.")
+    start_time = time.monotonic()
+    next_status_log = start_time + 10
 
-    start_time = time.time()
-    while time.time() - start_time < 300:
+    while time.monotonic() - start_time < timeout_seconds:
         if stop_event and stop_event.is_set():
-            if on_message:
-                on_message("[GNB] Login wait cancelled by user.")
+            notify("[GNB] Authentication wait cancelled by user.", 30)
+            return False
+        if not page or page.is_closed():
+            notify("[GNB] Browser page closed before authentication completed.", 40)
             return False
         if is_gnb_authenticated(page, selectors):
-            if on_message:
-                on_message("GNB authentication detected successfully.")
+            notify("[GNB] Authentication detected successfully.")
             return True
-        time.sleep(0.5)
 
+        now = time.monotonic()
+        if now >= next_status_log:
+            notify(f"[GNB] Still waiting for authentication ({int(now - start_time)}s elapsed).")
+            next_status_log = now + 10
+        time.sleep(poll_interval)
+
+    notify(
+        f"[GNB] Authentication timed out after {timeout_seconds}s. Current URL: {page.url}",
+        40,
+    )
     return False
-
 
 def extract_transaction_ids_from_file(file_path: Path) -> List[str]:
     """Read a spreadsheet file and return all Transaction IDs as clean strings.
