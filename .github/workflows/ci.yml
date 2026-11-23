@@ -1,6 +1,7 @@
 name: UBP Bot CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, it-handover-final, final-testing ]
   pull_request:
