@@ -27,6 +27,7 @@ from src.ubp_bot.core.config import (
     resolve_app_path,
     save_config,
     update_configured_directories,
+    validate_portal_endpoint,
 )
 from src.ubp_bot.core.pipeline import set_stop_state
 from src.ubp_bot.core.queue_manager import (
@@ -542,7 +543,7 @@ def create_desktop_dashboard(config_path: Optional[Path] = None) -> tk.Tk:
     otc_url_row.pack(fill="x", pady=(0, 8))
 
     otc_url_var = tk.StringVar(
-        value=config.get("portal", {}).get("login_url", "http://localhost:5173/")
+        value=(config.get("portal", {}).get("login_url") or "").strip()
     )
     tk.Label(
         otc_url_row,
@@ -565,15 +566,22 @@ def create_desktop_dashboard(config_path: Optional[Path] = None) -> tk.Tk:
     )
     otc_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-    def on_save_otc_url():
+    def on_save_otc_url() -> bool:
         new_url = otc_url_var.get().strip()
+        is_valid, reason = validate_portal_endpoint(new_url)
+        if not is_valid:
+            append_log_line(f"[OTC] Endpoint rejected: {reason}")
+            messagebox.showerror("Invalid OTC Portal URL", reason, parent=root)
+            return False
         config.setdefault("portal", {})["login_url"] = new_url
         config["portal"]["base_url"] = new_url
-        save_config(config)
-        append_log_line(f"[OTC] Endpoint URL saved: {new_url}")
+        save_config(config, config_path)
+        append_log_line(f"[OTC] Approved OTC portal endpoint saved: {new_url}")
+        return True
 
     def on_open_otc():
-        on_save_otc_url()
+        if not on_save_otc_url():
+            return
         url = otc_url_var.get().strip()
         append_log_line(f"[OTC] Launching independent OTC browser session: {url}...")
         threading.Thread(
