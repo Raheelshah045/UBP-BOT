@@ -9,8 +9,8 @@ Provides complete functionality for:
 """
 
 import time
-from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
