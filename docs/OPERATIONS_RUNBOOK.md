@@ -1,4 +1,4 @@
-# Operations Runbook — UBP Bot Phase 1
+# Operations Runbook — UBP Bot
 
 This runbook provides end-to-end operational instructions for Bank Operations Specialists using UBP Bot.
 
