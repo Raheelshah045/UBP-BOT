@@ -1,129 +1,86 @@
-# Deployment Readiness & Governance Guide — UBP Bot Phase 1
+# UBP BOT — Deployment and UAT Guide
 
-## 1. Governance & Authorization Notice
+## Purpose
 
-> [!IMPORTANT]
-> Formal delivery of Phase 1 enterprise readiness **does not equate to production authorization or organizational sign-off**. In compliance with IT Governance, Enterprise Architecture, Information Security, and Change Advisory Board (CAB) protocols, the following prerequisites must be fulfilled before deployment to branch workstations:
-> 1. Comprehensive UAT execution by designated operations business owners.
-> 2. Information Security SAIF/Risk assessment and architecture audit.
-> 3. Standard Change Request (CR) submission and approval.
+This guide covers installation, configuration, operator-assisted portal authentication, validation, and rollback for the UBP BOT application.
 
----
+Production use requires the applicable business-owner UAT, Information Security review, IT approval, and change-management authorization.
 
-## 2. Deployment Packaging Options
+## Before deployment
 
-UBP Bot supports two deployment models:
+- Windows 10/11 64-bit workstation.
+- Approved access to the OTC BPS and GNB portals.
+- IT-approved application folder and writable runtime-data locations.
+- Network allowlisting for the approved portal endpoints.
+- Confirmed browser policy: bundled Chromium or an IT-managed browser channel.
+- Named operator account and authorized portal credentials.
 
-### Option A: Standard Python Corporate Deployment
-1. **Target Machine Requirements**:
-   - Windows 10/11 Enterprise 64-bit.
-   - Python 3.10.x (64-bit).
-   - Network connectivity to internal BPS and GNB portal hostnames/IPs.
-2. **Setup Commands**:
-   ```powershell
-   git clone https://github.com/Raheelshah045/UBP-BOT.git
-   cd UBP-BOT
-   git checkout feature/phase1-enterprise-readiness
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   playwright install chromium
-   ```
-3. **Configuration**:
-   Copy `.env.example` to `.env` and set environment variables as necessary:
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+## Configure portal endpoints
 
-### Option B: Standalone Portable Binary (PyInstaller)
-For workstations with restricted administrative privileges or where installing Python is restricted by AppLocker:
-1. Build the standalone portable package:
-   ```powershell
-   python scripts/build_portable_package.py
-   ```
-2. The compiled standalone binary and bundled configuration will be placed in `deployment/dist/UBP-Bot/`.
-3. Copy the folder to target workstation (e.g. `C:\Users\<User>\AppData\Local\Programs\UBP-Bot`).
-4. Set `"channel": "msedge"` in `config/config.json` to utilize the sanctioned, pre-installed Windows corporate browser without requiring external Chromium downloads.
+Before connecting to a live portal, open `config/config.json` and replace the two endpoint placeholders with the exact IT-approved URLs:
 
----
+- `portal.login_url`: OTC BPS login URL.
+- `gnb.login_url`: GNB login URL.
+- `gnb.rejected_transactions_url`: GNB transaction search/report page, if different from its login URL.
 
-## 3. UAT Execution Checklist
+Do not add passwords, OTP seeds, session cookies, or customer data to the repository. Use the approved credential handling method for the workstation. GNB username and password fields are intentionally blank in the handover configuration.
 
-> [!NOTE]
-> The following 10 UAT test cases must be executed on a **real portal environment** by designated business owners. Automated tests in `tests/` cover the same scenarios against mocks but do not constitute organizational UAT sign-off.
+## Browser and manual authentication
 
-Before granting production authorization, execute the following UAT test cases:
+OTC and GNB live portal sessions launch in visible browser windows. Headless mode is disabled in the live browser launch paths so the operator can complete interactive authentication.
 
-- [ ] **TC-01: First-Launch Directory Setup**
-  - Launch application without configured directories.
-  - Verify the mandatory directory setup dialog appears and cannot be dismissed without valid selections.
-  - Confirm application does not proceed to processing until both directories are configured.
-- [ ] **TC-02: Directory Permission Validation**
-  - Point input or output folder to a read-only system directory (e.g. `C:\Windows`).
-  - Verify error message is shown and directory is rejected.
-  - Point to a valid writable folder — verify it is accepted and persisted across restart.
-- [ ] **TC-03: Directory Lock During Active Processing**
-  - Start an OTC or GNB batch run.
-  - Attempt to change input/output directory via the UI while batch is running.
-  - Verify the UI blocks the directory change and displays a warning.
-- [ ] **TC-04: OTC Manual Authentication**
-  - Click "Start OTC" with valid file in input directory.
-  - Verify browser opens to BPS login page.
-  - Enter credentials, CAPTCHA, and OTP.
-  - Verify bot automatically detects authentication and transitions to Check Bill Status.
-- [ ] **TC-05: Strict Exclusion of Codes 95 & 98**
-  - Run input file containing records with expected response codes 95 and 98.
-  - Verify resulting `output/OTC_Rejected_Transactions.xlsx` **omits codes 95 and 98 entirely**.
-- [ ] **TC-06: Formula Injection Protection**
-  - Provide input file with consumer numbers or response text prefixed with `=`, `+`, `-`, `@`.
-  - Open generated Excel report and verify symbols are escaped with a leading single quote `'` and do not execute.
-- [ ] **TC-07: GNB System Independence**
-  - Run GNB extraction while OTC is running or stopped.
-  - Verify separate browser profile (`browser_profile_gnb`) is used.
-  - Verify separate report (`GNB_Rejected_Transactions.xlsx`) is generated.
-  - Verify OTC state and report are unaffected by GNB run.
-- [ ] **TC-08: File Idempotency & Deduplication**
-  - Re-place an identical input spreadsheet into `input/`.
-  - Verify the bot identifies matching SHA-256 hash and immediately archives it to `completed/` without re-running queries.
-- [ ] **TC-09: Resumption from Checkpoint**
-  - Interrupt batch mid-run (click "Stop OTC" or close app).
-  - Restart bot and click "Start OTC".
-  - Verify previously completed rows are skipped and processing resumes from the uncompleted row.
-- [ ] **TC-10: Log Sanitization Verification**
-  - After a batch run, open the daily log file in `logs/`.
-  - Verify no raw passwords, tokens, or complete consumer numbers appear in plain text.
-  - Confirm consumer numbers appear masked (e.g., `7008******4001`).
+1. Start the required OTC or GNB workflow from the application.
+2. Complete the portal's approved username/password, CAPTCHA, and OTP steps in its visible browser.
+3. Leave the browser open while the application detects authentication and continues.
+4. Confirm the application reports that the OTC Check Bill Status screen or GNB authenticated state is ready.
+5. Do not close the browser while a batch is active.
 
----
+Authentication detection is based on configured portal selectors. If the portal's page structure changes, update and validate the selectors with the portal owner before operational use.
 
-## 4. Rollback Procedure
+## Portable package
 
-If operational abnormalities, portal changes, or unforeseen network regressions occur during rollout:
+The Windows portable package is built by GitHub Actions from the `final-testing` branch. Download the artifact named `UBP-BOT-final-testing-portable` from the successful workflow run.
 
-1. **Immediate Service Halt**:
-   - Click **⏹ Stop OTC** and **⏹ Stop GNB** in the dashboard, or terminate the process.
-   - Run process cleanup:
-     ```powershell
-     Get-Process chrome, msedge | Where-Object { $_.CommandLine -like "*browser_profile*" } | Stop-Process -Force
-     ```
-2. **Preserve Checkpoint & Audit State**:
-   - Copy `checkpoints/` and `logs/` to a backup location:
-     ```powershell
-     Copy-Item -Recurse checkpoints checkpoints_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')
-     Copy-Item -Recurse logs logs_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')
-     ```
-3. **Revert Application Code**:
-   - To revert to the last stable pre-Phase1 commit on the feature branch:
-     ```powershell
-     git checkout feature/phase1-enterprise-readiness
-     git revert ae0f598 --no-edit
-     ```
-   - To return to the last stable state before Phase 1 commit:
-     ```powershell
-     git checkout 544ca57
-     ```
-     > [!WARNING]
-     > `git checkout main` does **not** contain Phase 1 code — `main` has never been updated with this branch. Rolling back via `git checkout main` returns to the state before this development effort. Rolling back to `544ca57` returns to the previous performance-tuned commit on the feature branch.
-   - If rolling back a portable executable, replace the folder with the previously archived stable release folder.
-4. **Notify Incident Management**:
-   - Record batch ID and attach relevant sanitized log file from `logs/`.
+Extract the artifact to an IT-approved user-writable directory. Do not run it as a Windows service: interactive CAPTCHA and OTP require an active logged-in desktop session.
+
+Run:
+- `run_ubp_bot.bat` to launch the application.
+- `verify_environment.bat` to run pre-flight diagnostics.
+
+The portable package includes the executable, required runtime files, browser runtime, and application configuration. The endpoint placeholders must be configured before live portal testing.
+
+## UAT checklist
+
+- [ ] Application launches from a standard user account without elevation.
+- [ ] Diagnostics report usable runtime, browser, and writable application folders.
+- [ ] OTC browser opens visibly.
+- [ ] OTC operator can complete credentials, CAPTCHA, and OTP.
+- [ ] OTC authentication is detected and Check Bill Status becomes available.
+- [ ] GNB browser opens visibly in its separate profile.
+- [ ] GNB operator can complete credentials, CAPTCHA, and OTP where required.
+- [ ] GNB authentication is detected and extraction proceeds.
+- [ ] OTC and GNB can run without sharing browser sessions or output workbooks.
+- [ ] Response codes 95 and 98 are excluded from OTC rejection output.
+- [ ] Excel formula-injection protection is verified.
+- [ ] Duplicate-file handling and checkpoint recovery are verified.
+- [ ] Logs do not expose passwords, OTPs, tokens, or complete consumer numbers.
+- [ ] Input/output directory selection and persistence work as expected.
+- [ ] Stop/cancel behavior preserves recoverable processing state.
+
+Record the workstation, application commit, test date, operator, test evidence, and any exceptions. Automated CI results do not replace live portal UAT or formal approval.
+
+## Operational precautions
+
+- Use only authorized portal accounts and approved workstation environments.
+- Keep browser profiles, checkpoints, logs, input files, and reports within IT-approved storage.
+- Never upload live customer files, reports, browser profiles, or credentials to GitHub.
+- Do not run concurrent instances against the same browser profile or runtime directories.
+- Keep the operator's Windows desktop session active during interactive authentication.
+
+## Rollback
+
+1. Stop OTC and GNB workflows from the dashboard.
+2. Confirm browser processes for the application have closed.
+3. Preserve the required logs and checkpoint database in an approved restricted location.
+4. Restore the previously approved application package.
+5. Record the rollback reason, time, application commit, and affected batch identifiers.
