@@ -1,4 +1,4 @@
-# Security Controls & Compliance — UBP Bot Phase 1
+# Security Controls & Compliance — UBP Bot
 
 ## 1. Compliance Disclaimer & Governance Notice
 
