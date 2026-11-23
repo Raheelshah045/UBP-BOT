@@ -438,10 +438,6 @@ def run_batch_automation(
     )
     from src.ubp_bot.services.excel_reporter import generate_otc_rejected_report
 
-    page = get_active_browser_page()
-    if page is None or page.is_closed():
-        _, _, page = launch_persistent_browser_session(browser_cfg, initial_url=login_url, system_name="otc")
-
     from src.ubp_bot.core.config import safe_int_setting, validate_portal_endpoint
 
     login_url = str(portal_cfg.get("login_url") or "").strip()
@@ -453,6 +449,11 @@ def run_batch_automation(
         return None
 
     check_bill_url = portal_cfg.get("check_bill_url")
+    page = get_active_browser_page()
+    if page is None or page.is_closed():
+        _, _, page = launch_persistent_browser_session(
+            browser_cfg, initial_url=login_url, system_name="otc"
+        )
 
     # If search form is not already present, ensure authenticated and navigate
     if not is_check_bill_screen_present(page):
