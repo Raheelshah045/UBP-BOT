@@ -2,9 +2,9 @@ name: UBP Bot CI
 
 on:
   push:
-    branches: [ main, feature/phase1-enterprise-readiness, it-handover-final ]
+    branches: [ main, it-handover-final, final-testing ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, final-testing ]
 
 jobs:
   quality-and-tests:
@@ -65,3 +65,11 @@ jobs:
       - name: Run Portable Executable Pre-Flight Diagnostics
         run: |
           .\dist\UBP-Bot-Portable\UBP-Bot.exe --diagnostics
+
+      - name: Upload Portable Testing Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: UBP-BOT-final-testing-portable
+          path: dist/UBP-Bot-Portable/
+          if-no-files-found: error
+          retention-days: 14
