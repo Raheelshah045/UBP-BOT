@@ -206,6 +206,31 @@ def ensure_workspace_directories(
     return mapping
 
 
+
+def safe_int_setting(value: Any, default: int, minimum: int = 1) -> int:
+    """Parse an optional integer setting without crashing on blank or malformed values."""
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return max(minimum, default)
+    return max(minimum, parsed)
+
+
+def validate_portal_endpoint(url: str) -> Tuple[bool, str]:
+    """Validate an operator-supplied HTTP(S) portal URL and reject local development URLs."""
+    from urllib.parse import urlparse
+
+    candidate = (url or "").strip()
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False, "Enter a complete HTTP or HTTPS portal URL."
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost"):
+        return False, "Localhost URLs are not valid live banking portal endpoints."
+    if "SET-APPROVED-" in candidate.upper():
+        return False, "Replace the endpoint placeholder with the IT-approved portal URL."
+    return True, "Valid portal endpoint."
+
 def load_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
     """Load configuration dictionary from a JSON file.
 
