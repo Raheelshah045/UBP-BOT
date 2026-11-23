@@ -6,9 +6,9 @@ from pathlib import Path
 from src.ubp_bot.core.config import (
     has_valid_directory_configuration,
     safe_int_setting,
-    validate_portal_endpoint,
     update_configured_directories,
     validate_directory_permissions,
+    validate_portal_endpoint,
 )
 
 
