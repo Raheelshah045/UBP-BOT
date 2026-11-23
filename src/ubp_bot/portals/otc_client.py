@@ -256,54 +256,71 @@ def ensure_portal_authenticated(
     timeout_seconds: int = 300,
     on_message_callback: Optional[Callable[[str], None]] = None,
 ) -> bool:
-    """Guide manual authentication and navigation to Check Bill Status."""
+    """Wait for manual authentication and verify the BPS search screen is ready."""
     sel = selectors or {}
 
-    if is_check_bill_screen_present(page):
+    def notify(message: str) -> None:
         if on_message_callback:
-            on_message_callback("Portal is open at Check Bill Status screen. Ready to search.")
-        return True
+            on_message_callback(message)
 
-    if is_portal_authenticated(page, sel):
-        if on_message_callback:
-            on_message_callback("Authenticated session detected. Navigating to BPS...")
-        navigate_to_check_bill_status(page, sel, check_bill_url, on_message=on_message_callback)
-        return True
+    if not page or page.is_closed():
+        notify("OTC browser page is unavailable; authentication cannot continue.")
+        return False
 
     if not page.url or page.url in ("about:blank", ""):
-        if on_message_callback:
-            on_message_callback(f"Opening portal URL: {login_url}")
-        page.goto(login_url, wait_until="domcontentloaded")
-        time.sleep(1.0)
-        if is_portal_authenticated(page, sel):
-            navigate_to_check_bill_status(page, sel, check_bill_url, on_message=on_message_callback)
-            return True
+        notify(f"Opening OTC portal: {login_url}")
+        try:
+            page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as exc:
+            notify(f"OTC portal navigation failed: {type(exc).__name__}: {exc}")
+            return False
 
-    if on_message_callback:
-        on_message_callback("Waiting for manual OTC login, CAPTCHA, and 2FA OTP...")
+    if is_check_bill_screen_present(page):
+        notify("OTC Check Bill Status screen is ready.")
+        return True
 
-    start_time = time.time()
-    while time.time() - start_time < timeout_seconds:
+    notify("Waiting for manual OTC credentials, CAPTCHA, and OTP completion...")
+    start_time = time.monotonic()
+    next_status_log = start_time + 10
+    navigation_attempted = False
+    last_navigation_attempt = 0.0
+
+    while time.monotonic() - start_time < max(1, timeout_seconds):
         if page.is_closed():
+            notify("OTC browser page closed while waiting for authentication.")
             return False
 
         if is_check_bill_screen_present(page):
-            if on_message_callback:
-                on_message_callback("Authentication confirmed. Check Bill Status screen ready.")
+            notify("OTC authentication and Check Bill Status readiness confirmed.")
             return True
 
         if is_portal_authenticated(page, sel):
-            if on_message_callback:
-                on_message_callback("Login successful. Navigating to Check Bill Status...")
-            navigate_to_check_bill_status(page, sel, check_bill_url, on_message=on_message_callback)
-            return True
+            now = time.monotonic()
+            if not navigation_attempted or now - last_navigation_attempt >= 3:
+                notify("OTC login detected; opening Check Bill Status...")
+                navigation_attempted = True
+                last_navigation_attempt = now
+                if navigate_to_check_bill_status(
+                    page, sel, check_bill_url, on_message=on_message_callback
+                ) and is_check_bill_screen_present(page):
+                    notify("OTC Check Bill Status screen is ready.")
+                    return True
+                notify(
+                    "OTC session is authenticated, but Check Bill Status is not ready yet; retrying."
+                )
 
-        time.sleep(1.0)
+        now = time.monotonic()
+        if now >= next_status_log:
+            notify(f"Still waiting for OTC portal readiness ({int(now - start_time)}s elapsed).")
+            next_status_log = now + 10
 
-    if on_message_callback:
-        on_message_callback("Timed out waiting for manual OTC authentication.")
+        time.sleep(0.5)
+
+    notify(
+        f"OTC authentication/readiness timed out after {timeout_seconds}s. "
+        f"Current URL: {page.url}"
+    )
     return False
-
 
 # =========================================================================
 # Navigation to Check Bill Status
