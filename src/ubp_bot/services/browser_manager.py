@@ -156,7 +156,8 @@ def launch_persistent_browser_session(
             "application root, or configure 'channel': 'msedge' to use the pre-installed system browser."
         )
 
-    headless = browser_config.get("headless", False)
+    # Live portal sessions must remain visible for operator CAPTCHA/OTP entry.
+    headless = False
     slow_mo = browser_config.get("slow_mo_ms", 100)
     cdp_url = browser_config.get("cdp_url")
     channel = browser_config.get("channel")
