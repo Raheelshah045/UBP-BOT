@@ -9,6 +9,7 @@ Provides complete functionality for:
 """
 
 import time
+from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional
 
 from playwright.sync_api import Page
@@ -267,8 +268,10 @@ def ensure_portal_authenticated(
         notify("OTC browser page is unavailable; authentication cannot continue.")
         return False
 
-    if not page.url or page.url in ("about:blank", ""):
-        notify(f"Opening OTC portal: {login_url}")
+    target_host = (urlparse(login_url).hostname or "").lower()
+    current_host = (urlparse(page.url).hostname or "").lower()
+    if not page.url or page.url in ("about:blank", "") or current_host != target_host:
+        notify(f"Opening configured OTC portal: {login_url}")
         try:
             page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
         except Exception as exc:
