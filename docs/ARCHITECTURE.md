@@ -1,8 +1,8 @@
-# Architecture Specification — UBP Bot Phase 1 Enterprise Implementation
+# Architecture Specification — UBP Bot Enterprise Implementation
 
 ## 1. Executive Architecture Summary
 
-**UBP Bot** is an enterprise transaction processing and rejection extraction automation system designed for banking operations. The Phase 1 implementation establishes automated batch extraction and processing across two independent core banking and utility portals:
+**UBP Bot** is an enterprise transaction processing and rejection extraction automation system designed for banking operations. The Application implementation establishes automated batch extraction and processing across two independent core banking and utility portals:
 1. **System A: OTC BPS Portal** (Over-The-Counter Bill Payment System) — Operated via assisted manual operator authentication (preserving operator-controlled credential and OTP entry), automated page navigation, transaction query execution, multi-page data extraction, and strict business-rule classification.
 2. **System B: GNB Core Banking Portal** (General Banking Network) — Operated via dedicated, isolated headless/automated browser sessions for core transaction query and rejection extraction.
 
