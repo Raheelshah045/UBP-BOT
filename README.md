@@ -23,6 +23,7 @@ OTC and GNB use separate browser contexts and output workbooks to keep their ses
 ## Key Capabilities
 
 - **Desktop dashboard:** A graphical interface for starting workflows, monitoring progress, viewing status and selecting folders.
+- **Visible portal sessions:** OTC and GNB live browser sessions run visibly so operators can complete CAPTCHA and OTP authentication.
 - **Configurable directories:** Choose input and output folders through the folder-browse controls. Selected paths are validated and saved for subsequent application launches.
 - **Input monitoring and processing:** File stability checks, queue handling, duplicate detection and archival workflows.
 - **Checkpoint recovery:** SQLite-backed processing records support recovery of interrupted work.
@@ -153,7 +154,7 @@ A passing automated test or static-analysis run does not replace live-environmen
 - [Security Controls](docs/SECURITY_CONTROLS.md)
 - [Testing Guide](docs/TESTING.md)
 - [Operations Runbook](docs/OPERATIONS_RUNBOOK.md)
-- [Deployment Readiness](docs/DEPLOYMENT_READINESS.md)
+- [Deployment and UAT Guide](docs/DEPLOYMENT_READINESS.md)
 
 ## Security and Operational Notes
 
