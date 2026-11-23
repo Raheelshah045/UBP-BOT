@@ -1,13 +1,14 @@
 {
   "portal": {
-    "login_url": "http://127.0.0.1:5173/",
-    "base_url": "http://127.0.0.1:5173/",
+    "login_url": "https://SET-APPROVED-OTC-PORTAL-URL",
+    "base_url": "https://SET-APPROVED-OTC-PORTAL-URL",
     "dashboard_url": "http://localhost:5173/dashboard",
     "check_bill_url": null,
     "timeout_ms": 30000,
     "search_timeout_ms": 15000,
     "retry_attempts": 3,
-    "retry_delay_seconds": 2
+    "retry_delay_seconds": 2,
+    "auth_timeout_seconds": 300
   },
   "browser": {
     "headless": false,
@@ -26,7 +27,7 @@
     "checkpoints_dir": "checkpoints"
   },
   "monitoring": {
-    "poll_interval_seconds": 2.0,
+    "poll_interval_seconds": 2,
     "stability_check_interval_seconds": 0.5,
     "stability_required_checks": 2,
     "supported_extensions": [
@@ -99,12 +100,14 @@
     "logs_dir": "logs"
   },
   "gnb": {
-    "login_url": "http://127.0.0.1:8765/",
-    "rejected_transactions_url": "http://127.0.0.1:8765/",
-    "username": "demo@gnb.local",
+    "login_url": "https://SET-APPROVED-GNB-PORTAL-URL",
+    "rejected_transactions_url": "https://SET-APPROVED-GNB-PORTAL-URL",
+    "username": "",
     "password": "",
     "timeout_ms": 30000,
-    "retry_attempts": 3
+    "retry_attempts": 3,
+    "auth_timeout_seconds": 300,
+    "auth_poll_interval_seconds": 0.5
   },
   "gnb_selectors": {
     "login": {
