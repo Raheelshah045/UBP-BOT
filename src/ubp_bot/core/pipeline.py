@@ -421,6 +421,7 @@ def run_batch_automation(
     bank_mapping = config.get("bank_mapping", {})
     rules_cfg = config.get("classification_rules", {})
 
+    from src.ubp_bot.core.config import safe_int_setting, validate_portal_endpoint
     from src.ubp_bot.portals.otc_client import (
         check_is_session_expired,
         classify_transaction,
@@ -437,8 +438,6 @@ def run_batch_automation(
         launch_persistent_browser_session,
     )
     from src.ubp_bot.services.excel_reporter import generate_otc_rejected_report
-
-    from src.ubp_bot.core.config import safe_int_setting, validate_portal_endpoint
 
     login_url = str(portal_cfg.get("login_url") or "").strip()
     endpoint_valid, endpoint_message = validate_portal_endpoint(login_url)
