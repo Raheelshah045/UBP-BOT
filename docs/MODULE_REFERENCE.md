@@ -1,4 +1,4 @@
-# Module Reference — UBP Bot Phase 1
+# Module Reference — UBP Bot
 
 This document provides a comprehensive technical reference for all source modules within `src/ubp_bot/`.
 
