@@ -440,9 +440,18 @@ def run_batch_automation(
 
     page = get_active_browser_page()
     if page is None or page.is_closed():
-        _, _, page = launch_persistent_browser_session(browser_cfg)
+        _, _, page = launch_persistent_browser_session(browser_cfg, initial_url=login_url, system_name="otc")
 
-    login_url = portal_cfg.get("login_url", "https://SET-APPROVED-OTC-PORTAL-URL")
+    from src.ubp_bot.core.config import safe_int_setting, validate_portal_endpoint
+
+    login_url = str(portal_cfg.get("login_url") or "").strip()
+    endpoint_valid, endpoint_message = validate_portal_endpoint(login_url)
+    if not endpoint_valid:
+        log_event(logger, 40, f"OTC portal endpoint configuration error: {endpoint_message}")
+        if on_message:
+            on_message(f"OTC portal endpoint configuration error: {endpoint_message}")
+        return None
+
     check_bill_url = portal_cfg.get("check_bill_url")
 
     # If search form is not already present, ensure authenticated and navigate
@@ -456,7 +465,7 @@ def run_batch_automation(
                 login_url=login_url,
                 check_bill_url=check_bill_url,
                 selectors=selectors,
-                timeout_seconds=int(portal_cfg.get("auth_timeout_seconds", 300)),
+                timeout_seconds=safe_int_setting(portal_cfg.get("auth_timeout_seconds"), 300),
                 on_message_callback=on_message,
             )
             if not auth_success:
@@ -536,7 +545,7 @@ def run_batch_automation(
                 login_url=login_url,
                 check_bill_url=check_bill_url,
                 selectors=selectors,
-                timeout_seconds=300,
+                timeout_seconds=safe_int_setting(portal_cfg.get("auth_timeout_seconds"), 300),
                 on_message_callback=on_message,
             )
             if not reauth:
