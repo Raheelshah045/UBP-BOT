@@ -442,7 +442,7 @@ def run_batch_automation(
     if page is None or page.is_closed():
         _, _, page = launch_persistent_browser_session(browser_cfg)
 
-    login_url = portal_cfg.get("login_url", "http://127.0.0.1:8080/login")
+    login_url = portal_cfg.get("login_url", "https://SET-APPROVED-OTC-PORTAL-URL")
     check_bill_url = portal_cfg.get("check_bill_url")
 
     # If search form is not already present, ensure authenticated and navigate
@@ -456,7 +456,7 @@ def run_batch_automation(
                 login_url=login_url,
                 check_bill_url=check_bill_url,
                 selectors=selectors,
-                timeout_seconds=300,
+                timeout_seconds=int(portal_cfg.get("auth_timeout_seconds", 300)),
                 on_message_callback=on_message,
             )
             if not auth_success:
