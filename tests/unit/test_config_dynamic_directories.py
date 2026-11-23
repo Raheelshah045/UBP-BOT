@@ -5,6 +5,8 @@ from pathlib import Path
 
 from src.ubp_bot.core.config import (
     has_valid_directory_configuration,
+    safe_int_setting,
+    validate_portal_endpoint,
     update_configured_directories,
     validate_directory_permissions,
 )
@@ -64,3 +66,20 @@ def test_update_configured_directories_persists_safely(tmp_path: Path):
         reloaded = json.load(f)
     assert reloaded["directories"]["input_dir"] == str(new_in.resolve())
     assert reloaded["directories"]["output_dir"] == str(new_out.resolve())
+
+
+
+def test_safe_int_setting_uses_default_for_blank_values():
+    """Blank persisted settings must not crash runtime startup."""
+    assert safe_int_setting("", 300) == 300
+    assert safe_int_setting(None, 300) == 300
+    assert safe_int_setting("not-a-number", 300) == 300
+    assert safe_int_setting("45", 300) == 45
+
+
+def test_validate_portal_endpoint_rejects_local_development_urls():
+    """The live OTC endpoint must never silently point at the local dashboard."""
+    assert validate_portal_endpoint("http://127.0.0.1:5173/")[0] is False
+    assert validate_portal_endpoint("http://localhost:5173/")[0] is False
+    assert validate_portal_endpoint("https://SET-APPROVED-OTC-PORTAL-URL")[0] is False
+    assert validate_portal_endpoint("https://otc.example.com/login")[0] is True
