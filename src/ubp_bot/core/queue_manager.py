@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from src.ubp_bot.core.config import resolve_app_path, safe_int_setting
+from src.ubp_bot.core.config import resolve_app_path
 from src.ubp_bot.core.file_detector import (
     compute_file_sha256,
     identify_system_target,
