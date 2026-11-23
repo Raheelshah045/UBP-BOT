@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from src.ubp_bot.core.config import resolve_app_path
+from src.ubp_bot.core.config import resolve_app_path, safe_int_setting
 from src.ubp_bot.core.file_detector import (
     compute_file_sha256,
     identify_system_target,
@@ -241,7 +241,12 @@ def start_continuous_monitoring_worker(
     logger = get_logger("queue_manager")
     dirs_cfg = config.get("directories", {})
     input_dir = resolve_app_path(dirs_cfg.get("input_dir", "input"))
-    poll_interval = float(config.get("monitoring", {}).get("poll_interval_seconds", 3.0))
+    try:
+        poll_interval = float(str(config.get("monitoring", {}).get("poll_interval_seconds", 3.0)).strip())
+        if poll_interval <= 0:
+            poll_interval = 3.0
+    except (TypeError, ValueError):
+        poll_interval = 3.0
 
     set_monitoring_state(True)
     log_event(logger, 20, f"Continuous directory monitoring worker started for: {input_dir}")
