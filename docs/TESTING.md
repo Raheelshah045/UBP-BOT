@@ -1,4 +1,4 @@
-# Testing & Validation Strategy — UBP Bot Phase 1
+# Testing & Validation Strategy — UBP Bot
 
 This document outlines the testing architecture, validation methodology, and verification commands for UBP Bot.
 
@@ -26,7 +26,7 @@ tests/
 │   └── test_dual_system_pipeline.py                # Cross-system data isolation and report generation
 │
 └── regression/                                     (3 tests)
-    └── test_phase1_regression_suite.py             # Code 95/98 exclusion matrix & file hash idempotency
+    └── test_regression_suite.py             # Code 95/98 exclusion matrix & file hash idempotency
 ```
 
 ### 1.2 Legacy Tests (`src/` modules — 78 tests, all passing, unchanged)
@@ -46,14 +46,14 @@ tests/
 ├── test_final_remediation.py          # src.* — pagination, timeouts, checkpoint (10)
 ├── test_gnb_integration.py            # src.gnb_client — GNB pipeline mock (1)
 ├── test_input_processor.py            # src.input_processor — parsing (6)
-├── test_phase1_dual_systems.py        # src.excel_reporter — dual report generation (3)
+├── test_dual_systems.py        # src.excel_reporter — dual report generation (3)
 ├── test_queue_manager.py              # src.queue_manager — FIFO queue (2)
 └── test_state_detector.py             # src.state_detector — portal state detection (4)
 ```
 
 > [!IMPORTANT]
 > Legacy tests import from `src.*`. New enterprise tests import from `src.ubp_bot.*`.
-> Both layers must pass on every commit to `feature/phase1-enterprise-readiness`.
+> Both layers must pass on every commit to `final-testing`.
 
 ---
 
