@@ -383,13 +383,23 @@ def navigate_to_check_bill_status(
 
     if direct_url:
         try:
-            page.goto(direct_url, wait_until="domcontentloaded")
-            time.sleep(0.8)
-            return is_check_bill_screen_present(page)
-        except Exception:
-            pass
+            page.goto(direct_url, wait_until="domcontentloaded", timeout=30000)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if is_check_bill_screen_present(page):
+                    return True
+                time.sleep(0.25)
+        except Exception as exc:
+            if on_message:
+                on_message(f"OTC direct navigation failed: {type(exc).__name__}: {exc}")
 
-    return is_check_bill_screen_present(page)
+    ready = is_check_bill_screen_present(page)
+    if not ready and on_message:
+        on_message(
+            "OTC navigation did not reach Check Bill Status. "
+            f"Current URL: {page.url}"
+        )
+    return ready
 
 
 # =========================================================================
