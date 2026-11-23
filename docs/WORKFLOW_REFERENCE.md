@@ -1,4 +1,4 @@
-# Workflow Reference — UBP Bot Phase 1
+# Workflow Reference — UBP Bot
 
 This document describes the operational workflows for the UBP Bot system.
 
