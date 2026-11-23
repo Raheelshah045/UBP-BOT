@@ -591,7 +591,8 @@ def _execute_gnb_in_thread(
 
     launch_kwargs: Dict[str, Any] = {
         "user_data_dir": str(user_data_path),
-        "headless": browser_cfg.get("headless", False),
+        # GNB is an operator-assisted live portal workflow; keep its browser visible.
+        "headless": False,
         "slow_mo": browser_cfg.get("slow_mo_ms", 100),
         "args": ["--start-maximized"],
         "no_viewport": True,
